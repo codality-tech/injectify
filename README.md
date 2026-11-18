@@ -2,7 +2,7 @@
 
 An Apex framework for Salesforce that gives queries, conditions, triggers, DML and async jobs one consistent model. Fields are addressed as paths (`Contact` → `Account` → `Owner.Name`); a condition built from those paths can both compile into a SOQL `WHERE` clause and test records in memory, with the same answer.
 
-> **Status:** pre-release (0.2.x). The packaging route (unlocked or managed) and the public name are still being decided; the API may change before 1.0.
+> **Status:** pre-release (0.3.x). An unlocked package in the namespace `inj`. The API may change before 1.0.
 
 ## What it does
 
@@ -120,7 +120,13 @@ inj.Async.queueable(new PrepareData())
 
 ## Install
 
-Not yet published. Beta versions of the unlocked package (namespace `inj`) are built, but none is promoted. To try it now, deploy the source to a scratch org:
+The unlocked package (namespace `inj`) is in beta: `Injectify@0.3.0-1`. A beta version installs in a scratch org or a sandbox, not in production; no version is promoted yet.
+
+```bash
+sf package install --package 04tgK000000apjxQAA --target-org <alias> --wait 20
+```
+
+Or deploy the source to a scratch org:
 
 ```bash
 sf org create scratch --definition-file config/project-scratch-def.json --alias framework-dev

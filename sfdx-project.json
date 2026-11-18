@@ -12,6 +12,7 @@
   "namespace": "inj",
   "sourceApiVersion": "68.0",
   "packageAliases": {
-    "Injectify": "0HogK0000005hCPSAY"
+    "Injectify": "0HogK0000005hCPSAY",
+    "Injectify@0.3.0-1": "04tgK000000apjxQAA"
   }
 }

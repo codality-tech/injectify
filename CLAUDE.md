@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Injectify** is a Salesforce unlocked package (namespace: `inj`) that provides a comprehensive Apex framework for rapid application development. It uses factory patterns, dependency injection, and interface-based abstractions to provide unified access to SOQL queries, DML operations, trigger handlers, async operations, and domain logic.
 
-**Current Version:** 0.2.7 (beta 0.2.7-5 built 2026-11-14 and installed in `s-unify`, not promoted; changes under Unreleased in CHANGELOG.md)
+**Current Version:** 0.3.0 (beta `Injectify@0.3.0-1`, `04tgK000000apjxQAA`, built 2026-11-17 and installed in `s-unify`, not promoted; changes under Unreleased in CHANGELOG.md)
 **Source API Version:** 68.0
 **Package Alias:** Injectify
 
@@ -37,7 +37,7 @@ sf apex test run -t QueryFactoryTest -c
 sf package version create --package "Injectify" --path force-app --wait 10 --installation-key-bypass --code-coverage
 
 # Install package to target org
-sf package install --package "Unify@0.2.7-5" --target-org <alias> --wait 10
+sf package install --package "Injectify@0.3.0-1" --target-org <alias> --wait 10
 ```
 
 ### Analysis & Verification
@@ -553,7 +553,7 @@ sf project deploy start -m ApexClass:Class1 ApexClass:Class2 ApexClass:Class3 --
 sf project deploy start -d force-app/classes --ignore-conflicts
 
 # Always include --ignore-conflicts flag
-# No namespace prefix required (e.g., no "unif")
+# No namespace prefix required (e.g., no "inj")
 # No -o/--target-org flag needed (uses default org automatically)
 ```
 

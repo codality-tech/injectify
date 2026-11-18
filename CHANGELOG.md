@@ -4,6 +4,8 @@ All notable changes to this project. Versions follow [semantic versioning](https
 
 ## Unreleased
 
+The package is now **Injectify**, an unlocked package in the namespace `inj`; its first beta is 0.3.0-1. Versions up to 0.2.x were built in an earlier package under another namespace, and there is no upgrade path between the two: install Injectify beside the old package, change `unif.` to `inj.` in your code, then uninstall the old one.
+
 ### Added
 
 - A query guide (`docs/documentation/query-guide.md`).
