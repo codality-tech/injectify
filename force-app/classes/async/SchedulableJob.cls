@@ -1,5 +1,5 @@
 /** Schedulable flavor. Subclasses put their work in execute() and may override name() and cronExpression(). */
-public abstract inherited sharing class Schedulable extends Chainable implements System.Schedulable, Database.AllowsCallouts, ISchedulable {
+public abstract inherited sharing class SchedulableJob extends Chainable implements System.Schedulable, Database.AllowsCallouts, ISchedulable {
   /** The scheduled job's name. Defaults to the class name. */
   public virtual String name() {
     return typeName();

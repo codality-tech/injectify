@@ -1,7 +1,7 @@
 @IsTest
 private class DomainFactoryTest {
   // Faux domain for testing state and config
-  private class FauxAccounts extends Domain {
+  private class FauxAccounts extends DomainRecords {
     public Boolean domainInitialized = false;
     public List<SObject> domainRecords = new List<SObject>();
     public IModel domainSource = null;
@@ -128,7 +128,7 @@ private class DomainFactoryTest {
       domain,
       'Should return base Domain for unregistered type'
     );
-    System.assert(domain instanceof Domain, 'Should be base Domain class');
+    System.assert(domain instanceof DomainRecords, 'Should be base Domain class');
   }
 
   @IsTest
@@ -168,7 +168,7 @@ private class DomainFactoryTest {
     // Test fallback when not registered
     IDomain contactDomain = testFactory.make(Contact.SObjectType);
     System.assert(
-      contactDomain instanceof Domain,
+      contactDomain instanceof DomainRecords,
       'Should fall back to base Domain'
     );
     System.assert(

@@ -2,7 +2,7 @@
 
 Queries are built from the same pieces as the rest of the framework: a **model** for each object, **paths** for fields (including fields reached through lookups), and **conditions** that can render as SOQL or test records in memory. This guide covers SOQL queries (`IQuery`), aggregate queries (`IAggregateQuery`) and searches (`ISearchQuery`).
 
-The examples are written as subscriber code: framework types carry the `unif.` namespace, and `App.s` is your org's entry point (see the [README](../../README.md#sixty-second-tour)). Every SOQL string shown was produced by the code above it.
+The examples are written as subscriber code: framework types carry the `inj.` namespace, and `App.s` is your org's entry point (see the [README](../../README.md#sixty-second-tour)). Every SOQL string shown was produced by the code above it.
 
 ## Contents
 
@@ -24,10 +24,10 @@ There are two ways in:
 
 ```apex
 // From the query factory: a registered query class if there is one, with default fields.
-unif.IQuery accounts = App.s.qf().make(Account.SObjectType);
+inj.IQuery accounts = App.s.qf().make(Account.SObjectType);
 
 // From the model: a plain query that selects only Id until you add fields.
-unif.IQuery bare = App.s.model(Account.SObjectType).query();
+inj.IQuery bare = App.s.model(Account.SObjectType).query();
 ```
 
 `qf().make('Account')` takes the object's API name instead of its token.
@@ -45,7 +45,7 @@ unif.IQuery bare = App.s.model(Account.SObjectType).query();
 The defaults are worked out once per object per transaction. To change the rule for every query the factory makes, give it a field scope:
 
 ```apex
-App.s.qf().defaultFieldScope(unif.FieldScope.make(unif.FieldScope.Trait.CUSTOM));
+App.s.qf().defaultFieldScope(inj.FieldScope.make(inj.FieldScope.Trait.CUSTOM));
 ```
 
 Call `q.fields().clearFields()` to drop the defaults from one query and choose fields yourself. Id is always selected.
@@ -64,7 +64,7 @@ Describes run at the package's API version. A field added to the platform in a l
 | `Set<String>`, `Set<SObjectField>`, `Set<IPath>`, `IFieldScope`, `IQueryFields` | Adds those fields |
 
 ```apex
-unif.IQuery q = App.s.qf().make(Account.SObjectType, new List<Object>{
+inj.IQuery q = App.s.qf().make(Account.SObjectType, new List<Object>{
   'Contacts',
   App.s.eq(Account.Industry, 'Energy')
 });
@@ -82,7 +82,7 @@ An argument of another type, or a field from another object, throws an exception
 ### Fields of the object
 
 ```apex
-unif.IQuery q = App.s.model(Account.SObjectType).query();
+inj.IQuery q = App.s.model(Account.SObjectType).query();
 q.fields().add(new Set<SObjectField>{ Account.Name, Account.Industry });
 // SELECT Id, Name, Industry FROM Account
 ```
@@ -99,7 +99,7 @@ The first argument is a **route**: how to get from this object to the one whose 
 - an `IPath`.
 
 ```apex
-unif.IQuery c = App.s.model(Contact.SObjectType).query();
+inj.IQuery c = App.s.model(Contact.SObjectType).query();
 c.fields().add(new Set<SObjectField>{ Contact.LastName });
 c.fields().add('Account', new Set<SObjectField>{ Account.Name });
 c.fields().add(new List<SObjectField>{ Contact.AccountId, Account.OwnerId }, new Set<SObjectField>{ User.Email });
@@ -114,7 +114,7 @@ The fields must belong to the object the route leads to; a field of another obje
 A lookup that can point at several objects, such as `Task.WhatId`, takes fields of any of its targets. Each target you name fields for gets a `WHEN` branch, and its Id is added:
 
 ```apex
-unif.IQuery t = App.s.model(Task.SObjectType).query();
+inj.IQuery t = App.s.model(Task.SObjectType).query();
 t.fields().add(new Set<SObjectField>{ Task.Subject });
 t.fields().add(Task.WhatId, new Set<SObjectField>{ Account.Name, Opportunity.Amount });
 // SELECT Id, Subject, TYPEOF What WHEN Account THEN Id, Name WHEN Opportunity THEN Id, Amount END FROM Task
@@ -139,8 +139,8 @@ An `IFieldScope` selects fields by rule. `FieldScope.make` takes:
 Combine them with `FieldScope.any(scopes)` (union), `FieldScope.all(scopes)` (intersection) and `scope.exclude(other)`:
 
 ```apex
-unif.IQuery scoped = App.s.model(Account.SObjectType).query();
-scoped.fields().add(unif.FieldScope.make('Billing.*'));
+inj.IQuery scoped = App.s.model(Account.SObjectType).query();
+scoped.fields().add(inj.FieldScope.make('Billing.*'));
 // SELECT Id, BillingStreet, BillingCity, BillingState, BillingPostalCode, BillingCountry,
 //   BillingLatitude, BillingLongitude, BillingGeocodeAccuracy, BillingAddress FROM Account
 ```
@@ -152,7 +152,7 @@ scoped.fields().add(unif.FieldScope.make('Billing.*'));
 `q.addImplicitFields()` selects the fields that the query's conditions and orderings mention, plus the lookups that fields were added through:
 
 ```apex
-unif.IQuery q = App.s.model(Contact.SObjectType).query();
+inj.IQuery q = App.s.model(Contact.SObjectType).query();
 q.filters().add(App.s.eq(new List<SObjectField>{ Contact.AccountId, Account.Industry }, 'Energy'));
 q.orderings().add(App.s.ordering(Contact.LastName, true, false));
 q.addImplicitFields();
@@ -181,15 +181,15 @@ This helps when the records will be tested in memory later: the condition can th
 Combine conditions with `all` (AND), `any` (OR) and `neg` (NOT):
 
 ```apex
-unif.ICondition grouped = App.s.all(new List<unif.ICondition>{
+inj.ICondition grouped = App.s.all(new List<inj.ICondition>{
   App.s.iin(Account.Industry, new Set<String>{ 'Energy', 'Banking' }),
-  App.s.any(new List<unif.ICondition>{
+  App.s.any(new List<inj.ICondition>{
     App.s.gt(Account.AnnualRevenue, 1000000),
     App.s.lk(Account.Name, 'Acme%')
   }),
   App.s.neg(App.s.eq(Account.Type, 'Prospect'))
 });
-unif.IQuery q = App.s.model(Account.SObjectType).query();
+inj.IQuery q = App.s.model(Account.SObjectType).query();
 q.filters().add(grouped);
 ```
 
@@ -221,7 +221,7 @@ The first argument can be:
 - an aggregate function, in a HAVING clause ([section 7](#7-aggregate-queries)).
 
 ```apex
-unif.IQuery contacts = App.s.model(Contact.SObjectType).query();
+inj.IQuery contacts = App.s.model(Contact.SObjectType).query();
 contacts.filters().add(App.s.eq(new List<SObjectField>{ Contact.AccountId, Account.Industry }, 'Energy'));
 // SELECT Id FROM Contact WHERE (Account.Industry = 'Energy')
 ```
@@ -233,7 +233,7 @@ A value that doesn't fit the field's type throws when the condition is built, wi
 `model.parseCondition(text)` reads a SOQL-style WHERE expression. It suits conditions stored in configuration or entered by an admin. The result is the same condition object the builders make:
 
 ```apex
-unif.ICondition parsed = App.s.model(Account.SObjectType).parseCondition(
+inj.ICondition parsed = App.s.model(Account.SObjectType).parseCondition(
   'Industry IN (\'Energy\', \'Banking\') AND (AnnualRevenue > 1000000 OR Name LIKE \'Acme%\') AND NOT (Type = \'Prospect\')'
 );
 ```
@@ -274,10 +274,10 @@ An unloaded parent reads as null. To filter a list of records, use a domain's `f
 `prepend(reference)` returns a copy of a condition that starts one relationship further out, and leaves the original unchanged:
 
 ```apex
-unif.ICondition energy = App.s.eq(Account.Industry, 'Energy');
-unif.ICondition contactsOfEnergy = energy.prepend(App.s.reference(Contact.AccountId));
+inj.ICondition energy = App.s.eq(Account.Industry, 'Energy');
+inj.ICondition contactsOfEnergy = energy.prepend(App.s.reference(Contact.AccountId));
 
-unif.IQuery q = App.s.model(Contact.SObjectType).query();
+inj.IQuery q = App.s.model(Contact.SObjectType).query();
 q.filters().add(contactsOfEnergy);
 // SELECT Id FROM Contact WHERE (Account.Industry = 'Energy')
 ```
@@ -307,11 +307,11 @@ The same `IOrdering` can sort records in memory with `ordering.apply(records)`. 
 Build the child query as usual and attach it by relationship name or by the child's lookup field:
 
 ```apex
-unif.IQuery kids = App.s.model(Contact.SObjectType).query();
+inj.IQuery kids = App.s.model(Contact.SObjectType).query();
 kids.fields().add(new Set<SObjectField>{ Contact.LastName });
 kids.filters().add(App.s.ne(Contact.Email, null));
 
-unif.IQuery parents = App.s.model(Account.SObjectType).query();
+inj.IQuery parents = App.s.model(Account.SObjectType).query();
 parents.fields().add(new Set<SObjectField>{ Account.Name });
 parents.addSubquery('Contacts', kids);          // or addSubquery(Contact.AccountId, kids)
 // SELECT Id, Name, (SELECT Id, LastName FROM Contacts WHERE (Email != :a0)) FROM Account
@@ -358,7 +358,7 @@ Queries run in **system mode** by default, as Apex does.
 `forUpdate(true)` adds `FOR UPDATE`: the rows the query returns stay locked until the transaction ends, so nothing else can change them between your read and your write.
 
 ```apex
-unif.IQuery parents = App.s.model(Account.SObjectType).query().forUpdate(true);
+inj.IQuery parents = App.s.model(Account.SObjectType).query().forUpdate(true);
 parents.addCondition(App.s.condId(accountIds));
 // SELECT Id FROM Account WHERE (Id IN :a0) FOR UPDATE
 ```
@@ -372,7 +372,7 @@ parents.addCondition(App.s.condId(accountIds));
 
 ### Testing
 
-Every query runs through the application's scheme (`IScheme`). In tests, build the application with a `unif.MockScheme` to return rows you choose, without inserting data, and to see the SOQL and bind values each query ran. See the [testing guide](testing-guide.md#mocking-queries-with-mockscheme).
+Every query runs through the application's scheme (`IScheme`). In tests, build the application with a `inj.MockScheme` to return rows you choose, without inserting data, and to see the SOQL and bind values each query ran. See the [testing guide](testing-guide.md#mocking-queries-with-mockscheme).
 
 ---
 
@@ -381,7 +381,7 @@ Every query runs through the application's scheme (`IScheme`). In tests, build t
 Start from the model:
 
 ```apex
-unif.IAggregateQuery agg = App.s.model(Opportunity.SObjectType).aggregateQuery();
+inj.IAggregateQuery agg = App.s.model(Opportunity.SObjectType).aggregateQuery();
 agg.aggregates().add(App.s.sum(Opportunity.Amount));
 agg.aggregates().add(App.s.count(Opportunity.Id));
 agg.groupBys().add(App.s.path(Opportunity.StageName));
@@ -407,7 +407,7 @@ The functions are `count`, `countDistinct`, `sum`, `avg`, `min` and `max`. Each 
 `aggregate(function, field)` chooses the function at run time, as `cond` chooses a comparison. It suits a function named in configuration:
 
 ```apex
-unif.Enums.Aggregate chosen = unif.Enums.Aggregate.valueOf('SUM');
+inj.Enums.Aggregate chosen = inj.Enums.Aggregate.valueOf('SUM');
 agg.aggregates().add(App.s.aggregate(chosen, Opportunity.Amount)); // the same as App.s.sum(Opportunity.Amount)
 ```
 
@@ -424,15 +424,15 @@ WHERE and HAVING values are bound when the query runs, as in `IQuery`. `withShar
 A search runs one search term across several objects. Each object's query supplies its fields and filters:
 
 ```apex
-unif.IQuery accounts = App.s.model(Account.SObjectType).query();
+inj.IQuery accounts = App.s.model(Account.SObjectType).query();
 accounts.fields().add(new Set<SObjectField>{ Account.Name });
 accounts.filters().add(App.s.eq(Account.Industry, 'Energy'));
 
-unif.IQuery contacts = App.s.model(Contact.SObjectType).query();
+inj.IQuery contacts = App.s.model(Contact.SObjectType).query();
 contacts.fields().add(new Set<SObjectField>{ Contact.Email });
 
-unif.ISearchQuery s = App.s.searchQuery(new List<unif.IQuery>{ accounts, contacts });
-s.searchScope().add(unif.Enums.SearchScope.NAME);
+inj.ISearchQuery s = App.s.searchQuery(new List<inj.IQuery>{ accounts, contacts });
+s.searchScope().add(inj.Enums.SearchScope.NAME);
 s.setLimit(20);
 // FIND {Acme} IN NAME FIELDS RETURNING Account(Id, Name WHERE (Industry = 'Energy')), Contact(Id, Email) LIMIT 20
 
@@ -445,24 +445,24 @@ Map<SObjectType, List<SObject>> byType = s.runAsMap('Acme');  // only the object
 - **The search term:** backslashes, braces and quotes in it are escaped, so a term can't close `FIND {...}` early. SOSL wildcards (`*`, `?`) and operators still work.
 - **Filter values:** SOSL has no bind variables, so values in the objects' filters are written inline, escaped.
 - **Security:** a search runs in system mode, and in user mode as soon as one of its queries was set to `withSharing(true)`. Default fields the user can't read are left out, as in a query.
-- **Testing:** a search runs through the scheme of its first query. With `unif.MockScheme` it returns the rows registered for each object and records the SOSL (see the [testing guide](testing-guide.md#mocking-queries-with-mockscheme)); against the database, use `Test.setFixedSearchResults`.
-- **Your own scheme:** implement `unif.ISearchScheme` beside `unif.IScheme` to receive searches. A scheme that does not is skipped, and the search goes straight to the platform.
+- **Testing:** a search runs through the scheme of its first query. With `inj.MockScheme` it returns the rows registered for each object and records the SOSL (see the [testing guide](testing-guide.md#mocking-queries-with-mockscheme)); against the database, use `Test.setFixedSearchResults`.
+- **Your own scheme:** implement `inj.ISearchScheme` beside `inj.IScheme` to receive searches. A scheme that does not is skipped, and the search goes straight to the platform.
 
 ---
 
 ## 9. Custom query classes
 
-To give an object its own default fields or helper methods, extend `unif.BaseQuery` and register the class in your `App`:
+To give an object its own default fields or helper methods, extend `inj.BaseQuery` and register the class in your `App`:
 
 ```apex
-global class AccountQuery extends unif.BaseQuery {
+global class AccountQuery extends inj.BaseQuery {
   global override Set<SObjectField> getDefaultFields() {
     return new Set<SObjectField>{ Account.Id, Account.Name, Account.Type };
   }
 }
 
 // In App: the query registry maps the object to the class
-unif.Application.make(null, services, new Map<Type, Type>{ Account.class => AccountQuery.class }, domains);
+inj.Application.make(null, services, new Map<Type, Type>{ Account.class => AccountQuery.class }, domains);
 ```
 
 `App.s.qf().make(Account.SObjectType)` then returns an `AccountQuery` with those defaults. The [extension guide](extension-guide.md) covers the initialization hook (`onInitialized`) and calling base methods across the namespace.

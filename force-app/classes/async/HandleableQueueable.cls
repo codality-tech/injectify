@@ -1,4 +1,4 @@
-public class HandleableQueueable extends Queueable implements IHandleable {
+public class HandleableQueueable extends QueueableJob implements IHandleable {
   private IQueueableHandler handler;
 
   public HandleableQueueable(IQueueableHandler handler) {

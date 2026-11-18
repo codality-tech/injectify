@@ -2,7 +2,7 @@
 
 Queueable, batch and schedulable jobs, built from small handler classes, chained in sequence, and kept within the platform's rules about which job may start which.
 
-Examples are written from a subscriber org, so package types carry the `unif.` prefix. `App.s` is the subscriber's own entry point (a class that holds `unif.Application.make(...)`).
+Examples are written from a subscriber org, so package types carry the `inj.` prefix. `App.s` is the subscriber's own entry point (a class that holds `inj.Application.make(...)`).
 
 ## Contents
 
@@ -20,10 +20,10 @@ Examples are written from a subscriber org, so package types carry the `unif.` p
 
 | Type | Factory | Handler interface | Returns |
 | --- | --- | --- | --- |
-| Queueable | `unif.Async.queueable(handler)` | `IQueueableHandler` | `IQueueable` |
-| Batch over a query | `unif.Async.queryable(handler)` | `IBatchQueryableHandler` | `IBatchQueryable` |
-| Batch over an iterable | `unif.Async.iterable(handler)` | `IBatchIterableHandler` | `IBatchIterable` |
-| Schedulable | `unif.Async.schedulable(handler)` | `ISchedulableHandler` | `ISchedulable` |
+| Queueable | `inj.Async.queueable(handler)` | `IQueueableHandler` | `IQueueable` |
+| Batch over a query | `inj.Async.queryable(handler)` | `IBatchQueryableHandler` | `IBatchQueryable` |
+| Batch over an iterable | `inj.Async.iterable(handler)` | `IBatchIterableHandler` | `IBatchIterable` |
+| Schedulable | `inj.Async.schedulable(handler)` | `ISchedulableHandler` | `ISchedulable` |
 
 Every factory returns an `IJob`: `then(next)`, `run()` and `getJobId()`.
 
@@ -42,7 +42,7 @@ global interface IQueueableHandler extends IHandler {
 ```
 
 ```apex
-public class StampAccounts implements unif.IQueueableHandler {
+public class StampAccounts implements inj.IQueueableHandler {
   private Set<Id> accountIds;
 
   public StampAccounts(Set<Id> accountIds) {
@@ -58,7 +58,7 @@ public class StampAccounts implements unif.IQueueableHandler {
   }
 }
 
-unif.Async.queueable(new StampAccounts(ids)).run();
+inj.Async.queueable(new StampAccounts(ids)).run();
 ```
 
 `IQueueable.setMinuteDelay(n)` delays the enqueue by 0 to 10 minutes; other values are ignored.
@@ -75,9 +75,9 @@ global interface IBatchQueryableHandler extends IHandler {
 ```
 
 ```apex
-public class ArchiveInactive implements unif.IBatchQueryableHandler {
-  public unif.IQuery batchStart() {
-    unif.IQuery inactive = App.s.qf().make(Account.SObjectType);
+public class ArchiveInactive implements inj.IBatchQueryableHandler {
+  public inj.IQuery batchStart() {
+    inj.IQuery inactive = App.s.qf().make(Account.SObjectType);
     inactive.addCondition(App.s.eq(Account.Active__c, 'No'));
     return inactive;
   }
@@ -97,7 +97,7 @@ public class ArchiveInactive implements unif.IBatchQueryableHandler {
   }
 }
 
-unif.Async.queryable(new ArchiveInactive()).run();
+inj.Async.queryable(new ArchiveInactive()).run();
 ```
 
 The query's filters run as bind variables. `IBatch.setBatchSize(n)` overrides the handler's size for one run; it must be positive.
@@ -126,7 +126,7 @@ global interface ISchedulableHandler extends IHandler {
 ```
 
 ```apex
-public class NightlyReport implements unif.ISchedulableHandler {
+public class NightlyReport implements inj.ISchedulableHandler {
   public void schedulableExecute() {
     ReportService.sendNightly();
   }
@@ -138,7 +138,7 @@ public class NightlyReport implements unif.ISchedulableHandler {
   }
 }
 
-unif.ISchedulable nightly = unif.Async.schedulable(new NightlyReport());
+inj.ISchedulable nightly = inj.Async.schedulable(new NightlyReport());
 nightly.run(); // schedules it: System.schedule(name(), cronExpression(), job)
 nightly.unschedule(); // aborts every scheduled job with this name
 ```
@@ -152,9 +152,9 @@ nightly.unschedule(); // aborts every scheduled job with this name
 `run()` starts a job. `then(next)` adds a job to the end of the chain; when a job finishes, the next one starts. `then` returns the job it was called on, so a chain reads in order:
 
 ```apex
-unif.Async.queueable(new PrepareData())
-  .then(unif.Async.queryable(new ProcessRows()))
-  .then(unif.Async.queueable(new NotifyOwners()))
+inj.Async.queueable(new PrepareData())
+  .then(inj.Async.queryable(new ProcessRows()))
+  .then(inj.Async.queueable(new NotifyOwners()))
   .run();
 ```
 
@@ -213,7 +213,7 @@ global interface IHandlerCapturing extends IHandler {
 
 ```apex
 // Retries up to three times, each retry waiting behind the rest of the chain.
-public class SyncWithRetry implements unif.IQueueableHandler, unif.IHandlerCapturing {
+public class SyncWithRetry implements inj.IQueueableHandler, inj.IHandlerCapturing {
   private Integer attempt;
 
   public SyncWithRetry(Integer attempt) {
@@ -224,16 +224,16 @@ public class SyncWithRetry implements unif.IQueueableHandler, unif.IHandlerCaptu
     try {
       ExternalSystem.sync();
     } catch (CalloutException failure) {
-      unif.Async.queueable(new SyncWithRetry(attempt + 1)).run();
+      inj.Async.queueable(new SyncWithRetry(attempt + 1)).run();
     }
   }
 
-  public unif.Enums.CaptureMode getCaptureMode(unif.IJob parentJob, unif.IJob childJob) {
-    return attempt < 3 ? unif.Enums.CaptureMode.APPEND : unif.Enums.CaptureMode.IGNORE;
+  public inj.Enums.CaptureMode getCaptureMode(inj.IJob parentJob, inj.IJob childJob) {
+    return attempt < 3 ? inj.Enums.CaptureMode.APPEND : inj.Enums.CaptureMode.IGNORE;
   }
 }
 
-unif.Async.queueable(new SyncWithRetry(1)).run();
+inj.Async.queueable(new SyncWithRetry(1)).run();
 ```
 
 Inside the package, a job class can also override `Chainable.captureModeFor(child)`; it is asked before the handler.
@@ -249,10 +249,10 @@ A batch job is stateful (`Database.Stateful`), and it holds its handler: what a 
 A handler that implements `IJobAware` is handed its job while it runs:
 
 ```apex
-public class CountAccounts implements unif.IQueueableHandler, unif.IJobAware {
-  private unif.IJob job;
+public class CountAccounts implements inj.IQueueableHandler, inj.IJobAware {
+  private inj.IJob job;
 
-  public void setJob(unif.IJob job) {
+  public void setJob(inj.IJob job) {
     this.job = job;
   }
 
@@ -261,10 +261,10 @@ public class CountAccounts implements unif.IQueueableHandler, unif.IJobAware {
   }
 }
 
-public class ReportCount implements unif.IQueueableHandler, unif.IJobAware {
-  private unif.IJob job;
+public class ReportCount implements inj.IQueueableHandler, inj.IJobAware {
+  private inj.IJob job;
 
-  public void setJob(unif.IJob job) {
+  public void setJob(inj.IJob job) {
     this.job = job;
   }
 
@@ -274,7 +274,7 @@ public class ReportCount implements unif.IQueueableHandler, unif.IJobAware {
   }
 }
 
-unif.IJob chain = unif.Async.queueable(new CountAccounts()).then(unif.Async.queueable(new ReportCount()));
+inj.IJob chain = inj.Async.queueable(new CountAccounts()).then(inj.Async.queueable(new ReportCount()));
 chain.setShared('requestedBy', UserInfo.getUserId());
 chain.run();
 ```
@@ -294,7 +294,7 @@ static void stampsTheAccounts() {
   insert row;
 
   Test.startTest();
-  unif.Async.queueable(new StampAccounts(new Set<Id>{ row.Id })).run();
+  inj.Async.queueable(new StampAccounts(new Set<Id>{ row.Id })).run();
   Test.stopTest();
 
   Assert.isTrue([SELECT Description FROM Account WHERE Id = :row.Id].Description.startsWith('Stamped'));
@@ -303,14 +303,14 @@ static void stampsTheAccounts() {
 
 To test a handler's logic on its own, call it directly: `new StampAccounts(ids).queueableExecute();`.
 
-To test a whole chain, set `unif.Async.synchronousInTests = true`: every job then runs in the test's own transaction, in chain order, with captured jobs handled as described above. The switch only takes effect while a test is running.
+To test a whole chain, set `inj.Async.synchronousInTests = true`: every job then runs in the test's own transaction, in chain order, with captured jobs handled as described above. The switch only takes effect while a test is running.
 
 ```apex
 @IsTest
 static void theWholeChainRuns() {
-  unif.Async.synchronousInTests = true;
+  inj.Async.synchronousInTests = true;
 
-  unif.Async.queueable(new CountAccounts()).then(unif.Async.queueable(new ReportCount())).run();
+  inj.Async.queueable(new CountAccounts()).then(inj.Async.queueable(new ReportCount())).run();
 
   // every job has run; assert on the results
 }
@@ -324,7 +324,7 @@ static void theWholeChainRuns() {
 - A job started inside a queueable or batch waits until the step that started it has finished, then starts on its own.
 - A batch cannot start another batch from its start or execute step: a queueable carries the new batch out and starts it.
 - Not covered: a batch started from inside a batch class of your own (one that is not a framework job). Nothing is capturing there, so the platform's refusal reaches your code. Start it from that batch's finish.
-- A test runs only one level of async work: `unif.Async.synchronousInTests = true` runs the whole chain inline.
+- A test runs only one level of async work: `inj.Async.synchronousInTests = true` runs the whole chain inline.
 
 For other limits (jobs per transaction, concurrent batches, scheduled jobs per org), see Salesforce's Apex governor limits.
 

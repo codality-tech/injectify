@@ -85,19 +85,19 @@ global class Async {
       // Parent determines how to capture child based on platform constraints
       if (parentJob instanceof System.Queueable) {
         if (childJob instanceof System.Queueable) {
-          ret = Enums.CaptureMode.IMMEDIATE; // Queueable CAN chain another queueable
+          ret = Enums.CaptureMode.IMMEDIATE; // QueueableJob CAN chain another queueable
         } else if (childJob instanceof System.Schedulable) {
-          ret = Enums.CaptureMode.RELEASE; // Queueable CANNOT schedule from execute()
+          ret = Enums.CaptureMode.RELEASE; // QueueableJob CANNOT schedule from execute()
         } else if (childJob instanceof Database.Batchable<Object>) {
-          ret = Enums.CaptureMode.RELEASE; // Queueable CANNOT start batch from execute()
+          ret = Enums.CaptureMode.RELEASE; // QueueableJob CANNOT start batch from execute()
         }
       } else if (parentJob instanceof System.Schedulable) {
         if (childJob instanceof System.Queueable) {
-          ret = Enums.CaptureMode.RELEASE; // Schedulable runs at scheduled time
+          ret = Enums.CaptureMode.RELEASE; // SchedulableJob runs at scheduled time
         } else if (childJob instanceof System.Schedulable) {
-          ret = Enums.CaptureMode.RELEASE; // Schedulable cannot schedule immediately
+          ret = Enums.CaptureMode.RELEASE; // SchedulableJob cannot schedule immediately
         } else if (childJob instanceof Database.Batchable<Object>) {
-          ret = Enums.CaptureMode.RELEASE; // Schedulable runs at scheduled time
+          ret = Enums.CaptureMode.RELEASE; // SchedulableJob runs at scheduled time
         }
       } else if (parentJob instanceof Database.Batchable<Object>) {
         if (childJob instanceof System.Queueable) {

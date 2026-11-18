@@ -165,8 +165,8 @@ public class TriggeredFactory extends Application.Factory implements ITriggeredF
       }
     }
 
-    if (Test.isRunningTest() && (triggered instanceof Domain)) {
-      ((Domain) triggered)
+    if (Test.isRunningTest() && (triggered instanceof DomainRecords)) {
+      ((DomainRecords) triggered)
         .setTriggerMock(triggerOp, triggerNew, triggerOld, triggerOldMap);
     }
 

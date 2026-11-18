@@ -40,7 +40,7 @@ private class BatchIterableTest {
     }
   }
 
-  private class Marker extends Queueable {
+  private class Marker extends QueueableJob {
     private String label;
 
     private Marker(String label) {

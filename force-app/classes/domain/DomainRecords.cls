@@ -1,4 +1,4 @@
-public virtual class Domain implements IDomain, ITriggered, ITriggeredConfigured {
+public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredConfigured {
   private IModel source;
   private List<SObject> records;
   // catalog() and catalogId() results, remembered per path until the records change.
@@ -12,12 +12,12 @@ public virtual class Domain implements IDomain, ITriggered, ITriggeredConfigured
   }
 
   // No-argument constructor for factory usage
-  public Domain() {
+  public DomainRecords() {
     this.records = new List<SObject>();
   }
 
   // Constructor that takes model and records and calls init internally
-  public Domain(IModel source, List<SObject> records) {
+  public DomainRecords(IModel source, List<SObject> records) {
     init(source, records);
   }
 

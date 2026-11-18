@@ -6,7 +6,7 @@ private class ChainableTest {
    * Queueable that writes its label to the trail, then starts the jobs it was given from inside
    * its own body. As a child, it tells a parent Probe which capture mode it wants.
    */
-  private class Probe extends Queueable {
+  private class Probe extends QueueableJob {
     private String label;
     private List<Chainable> startsInside = new List<Chainable>();
     private Enums.CaptureMode modeAsChild;
@@ -47,7 +47,7 @@ private class ChainableTest {
   }
 
   /** Starts a fresh copy of itself every time it runs. */
-  private class Runaway extends Queueable {
+  private class Runaway extends QueueableJob {
     public override void execute() {
       trail.add('runaway');
       new Runaway().run();

@@ -22,12 +22,12 @@ The examples are subscriber code. Every signature is in [`package_api.apex`](pac
 ## RandomUtil and IdUtil
 
 ```apex
-String code = unif.RandomUtil.getString(8);                 // letters and digits
-String pin = unif.RandomUtil.getString(4, '0123456789');
-Integer quantity = unif.RandomUtil.getIntegerBetween(1, 10); // both bounds included
-Object pick = unif.RandomUtil.getListItem(new List<Object>{ 'Hot', 'Warm', 'Cold' });
+String code = inj.RandomUtil.getString(8);                 // letters and digits
+String pin = inj.RandomUtil.getString(4, '0123456789');
+Integer quantity = inj.RandomUtil.getIntegerBetween(1, 10); // both bounds included
+Object pick = inj.RandomUtil.getListItem(new List<Object>{ 'Hot', 'Warm', 'Cold' });
 
-Id accountId = unif.IdUtil.generateId(Account.SObjectType);
+Id accountId = inj.IdUtil.generateId(Account.SObjectType);
 ```
 
 `IdUtil.generateId` returns a well-formed Id that belongs to no record: the object's key prefix and a serial number. Each call in a transaction returns a different one, and `RandomUtil.getIdUnique` draws from the same sequence, so the two never collide. Use them to build records for tests that never touch the database.
@@ -36,10 +36,10 @@ The `Unique` methods of `RandomUtil` never repeat a value within a transaction. 
 
 ```apex
 // One empty record per Id, with only the Id set
-List<SObject> stubs = unif.IdUtil.toRecords(accountIds, false);
+List<SObject> stubs = inj.IdUtil.toRecords(accountIds, false);
 
 // Which of these have I not seen before?
-unif.IdUtil.ITracker tracker = unif.IdUtil.getTracker();
+inj.IdUtil.ITracker tracker = inj.IdUtil.getTracker();
 Set<Id> firstTime = tracker.getNovelIds(accountIds, true);
 ```
 
@@ -49,23 +49,23 @@ Set<Id> firstTime = tracker.getNovelIds(accountIds, true);
 
 ```apex
 // In a trigger: the accounts whose owner or rating changed
-List<SObject> moved = unif.FieldUtil.changed(
+List<SObject> moved = inj.FieldUtil.changed(
     Trigger.new, Trigger.oldMap, new List<SObjectField>{ Account.OwnerId, Account.Rating });
 
 // A copy that holds only these fields
-SObject slim = unif.FieldUtil.crop(account, new Set<SObjectField>{ Account.Name, Account.Industry });
+SObject slim = inj.FieldUtil.crop(account, new Set<SObjectField>{ Account.Name, Account.Industry });
 
 // The first record, with its gaps filled from the second
-SObject merged = unif.FieldUtil.join(incoming, existing);
+SObject merged = inj.FieldUtil.join(incoming, existing);
 
 // Multi-select picklists as sets
-Set<String> chosen = unif.FieldUtil.getMultipickValues(record, Product2.Family);
+Set<String> chosen = inj.FieldUtil.getMultipickValues(record, Product2.Family);
 
 // For each controlling value, the dependent values it allows
-Map<String, Set<String>> allowed = unif.FieldUtil.getDependentPicklistValues(Account.Rating);
+Map<String, Set<String>> allowed = inj.FieldUtil.getDependentPicklistValues(Account.Rating);
 
 // Compound addresses by their stem
-unif.FieldUtil.copyAddress(account, 'Billing', contact, 'Mailing');
+inj.FieldUtil.copyAddress(account, 'Billing', contact, 'Mailing');
 ```
 
 `changed` counts a record with no previous version as changed. `getDependentPicklistValues` returns an empty map for a field with no controlling field.
@@ -73,9 +73,9 @@ unif.FieldUtil.copyAddress(account, 'Billing', contact, 'Mailing');
 `fromText` turns text, as a person types it into a file or a form, into the value a field takes:
 
 ```apex
-Object due = unif.FieldUtil.fromText(Opportunity.CloseDate, '2026-01-31');   // a Date
-Object amount = unif.FieldUtil.fromText(Opportunity.Amount, '1,234.50');     // a Decimal
-Object stage = unif.FieldUtil.fromText(Opportunity.StageName, 'closed won'); // 'Closed Won'
+Object due = inj.FieldUtil.fromText(Opportunity.CloseDate, '2026-01-31');   // a Date
+Object amount = inj.FieldUtil.fromText(Opportunity.Amount, '1,234.50');     // a Decimal
+Object stage = inj.FieldUtil.fromText(Opportunity.StageName, 'closed won'); // 'Closed Won'
 ```
 
 | Field | Text it reads |
@@ -89,25 +89,25 @@ Object stage = unif.FieldUtil.fromText(Opportunity.StageName, 'closed won'); // 
 | Picklist | A value or its label, in any case; anything else is passed on as written |
 | Any other | The text, trimmed |
 
-Blank text is null. Text the field cannot take throws `unif.FieldUtil.GeneralException` with a message a person can act on, such as `"soon" is not a date; write it like 2026-01-31`. A comma counts as a thousands separator only where it sits like one, so `1,5` is refused and not read as 15. `takesText(describe)` says whether a field can be filled from text at all: an address, a location or a file cannot.
+Blank text is null. Text the field cannot take throws `inj.FieldUtil.GeneralException` with a message a person can act on, such as `"soon" is not a date; write it like 2026-01-31`. A comma counts as a thousands separator only where it sits like one, so `1,5` is refused and not read as 15. `takesText(describe)` says whether a field can be filled from text at all: an address, a location or a file cannot.
 
 ## RecordsUtil
 
 Copies the populated fields of a template onto records of the same object. Pass a unit of work and the records that changed are tracked in it; pass null and they are only changed in memory. Both methods return true when at least one record changed.
 
 ```apex
-unif.IWork work = App.s.work();
+inj.IWork work = App.s.work();
 Account template = new Account(Industry = 'Other', Rating = 'Cold');
 
-unif.RecordsUtil.updateWhereBlank(accounts, template, work);     // fills only blank fields
-unif.RecordsUtil.updateWhereDifferent(accounts, template, work); // sets every field that differs
+inj.RecordsUtil.updateWhereBlank(accounts, template, work);     // fills only blank fields
+inj.RecordsUtil.updateWhereDifferent(accounts, template, work); // sets every field that differs
 work.apply();
 ```
 
 ## CsvUtil
 
 ```apex
-String csv = unif.CsvUtil.toCsv(new List<String>{ 'LastName', 'Account.Name' }, contacts);
+String csv = inj.CsvUtil.toCsv(new List<String>{ 'LastName', 'Account.Name' }, contacts);
 ```
 
 Columns are field paths and may cross lookups. Every cell is quoted and inner quotes are doubled (RFC 4180), lines end with `\n`, and null is an empty cell. To choose the header text, pass a map of path to label instead of the list. A third form takes a header and a list of maps.
@@ -115,16 +115,16 @@ Columns are field paths and may cross lookups. Every cell is quoted and inner qu
 It reads CSV too:
 
 ```apex
-unif.CsvUtil.Table table = unif.CsvUtil.read(text);
+inj.CsvUtil.Table table = inj.CsvUtil.read(text);
 table.header;        // the cells of the first row that is not blank, trimmed
 table.rows;          // the rows beneath it, each a list of cells as written
 table.rowNumber(0);  // which row of the text rows[0] was, counting from 1
 table.separator;     // comma, semicolon, tab or bar: the one the first line holds most of
 ```
 
-A quoted cell may hold the separator, line breaks, and quotes written twice. Lines may end in `\n`, `\r\n` or `\r`, and a byte order mark at the start is dropped. Rows need not be the same length. Blank rows beneath the header are kept, so `rowNumber` stays true to the text; test a row with `unif.CsvUtil.isBlank(row)`. Text with nothing in it gives an empty header. A quote that is never closed throws `unif.CsvUtil.GeneralException`.
+A quoted cell may hold the separator, line breaks, and quotes written twice. Lines may end in `\n`, `\r\n` or `\r`, and a byte order mark at the start is dropped. Rows need not be the same length. Blank rows beneath the header are kept, so `rowNumber` stays true to the text; test a row with `inj.CsvUtil.isBlank(row)`. Text with nothing in it gives an empty header. A quote that is never closed throws `inj.CsvUtil.GeneralException`.
 
-`unif.CsvUtil.rows(text, separator)` returns every row with no header taken off, and `unif.CsvUtil.separatorOf(text)` says which separator a text uses.
+`inj.CsvUtil.rows(text, separator)` returns every row with no header taken off, and `inj.CsvUtil.separatorOf(text)` says which separator a text uses.
 
 ## TandemSortingUtil
 
@@ -134,22 +134,22 @@ Sorts a list of keys and moves a second list in step with it. Both are reordered
 List<String> names = new List<String>{ 'Ada', 'Grace', 'Edsger' };
 List<Decimal> scores = new List<Decimal>{ 72, 95, 88 };
 
-unif.TandemSortingUtil.sort(names, scores, false, true); // descending, nulls last
+inj.TandemSortingUtil.sort(names, scores, false, true); // descending, nulls last
 // names: Grace, Edsger, Ada
 ```
 
 Keys can be strings, decimals, datetimes or booleans. Equal keys keep their order. A fifth form sorts records by the value at a path, which may sit across lookups:
 
 ```apex
-unif.IPath ownerName = App.s.model(Account.SObjectType).path('Owner.Name');
-unif.TandemSortingUtil.sort(accounts, ownerName, true, true);
+inj.IPath ownerName = App.s.model(Account.SObjectType).path('Owner.Name');
+inj.TandemSortingUtil.sort(accounts, ownerName, true, true);
 ```
 
 ## StringUtil
 
 ```apex
-unif.StringUtil.areEquivalent(null, '', false);   // true: null counts as empty
-unif.StringUtil.areEquivalent('ACME', 'acme', true); // false: the last argument asks for case to matter
+inj.StringUtil.areEquivalent(null, '', false);   // true: null counts as empty
+inj.StringUtil.areEquivalent('ACME', 'acme', true); // false: the last argument asks for case to matter
 ```
 
 `containsAll` and `containsAny` compare two collections of strings the same way.
@@ -159,7 +159,7 @@ unif.StringUtil.areEquivalent('ACME', 'acme', true); // false: the last argument
 Small values that outlive the transaction, kept in a custom setting the package owns. Keys are grouped under a prefix, so two features do not collide.
 
 ```apex
-unif.Persistent.INamespace sync = unif.Persistent.getNamespace('sync');
+inj.Persistent.INamespace sync = inj.Persistent.getNamespace('sync');
 
 sync.put('lastRun', Datetime.now());
 Datetime lastRun = (Datetime) sync.get('lastRun');
@@ -174,9 +174,9 @@ sync.remove('lastRun');
 ## LimitsUtil and DebugUtil
 
 ```apex
-unif.LimitsUtil.Snapshot before = new unif.LimitsUtil.Snapshot();
+inj.LimitsUtil.Snapshot before = new inj.LimitsUtil.Snapshot();
 // ... the work being measured ...
-System.debug(new unif.LimitsUtil.Snapshot().getDelta(before));
+System.debug(new inj.LimitsUtil.Snapshot().getDelta(before));
 ```
 
 A snapshot reads six governor limits (CPU time, heap size, queries, query rows, DML statements, DML rows); `getDelta` is what was consumed between two. Each line reads `Name: 12.50% (used/limit)`.
@@ -184,7 +184,7 @@ A snapshot reads six governor limits (CPU time, heap size, queries, query rows, 
 `DebugUtil` collects lines and writes them as a single debug statement, so a trace of several steps reads as one block in the log:
 
 ```apex
-unif.DebugUtil.printer()
+inj.DebugUtil.printer()
     .writeSection('Sync')
     .inc()
     .write('3 accounts changed')
@@ -201,14 +201,14 @@ unif.DebugUtil.printer()
 A `CharUtil.ICharset` is a set of characters read as the digits of a number base. Several are built in (`binary`, `numeric`, `lowerhex`, `upperhex`, `lowerdec`, `upperdec`, `alphadec`, `ascii`), and `CharUtil.charset('...')` makes another.
 
 ```apex
-String hex = unif.CharUtil.numeric.convert('255', 2, unif.CharUtil.lowerhex); // 'ff'
-String token = unif.CharUtil.alphadec.generateRandom(12);
+String hex = inj.CharUtil.numeric.convert('255', 2, inj.CharUtil.lowerhex); // 'ff'
+String token = inj.CharUtil.alphadec.generateRandom(12);
 ```
 
 `UuidUtil` turns a record Id into a UUID-shaped string and back, so an Id can leave the org without showing its key prefix:
 
 ```apex
-unif.UuidUtil.Converter converter = new unif.UuidUtil.Converter(null);
+inj.UuidUtil.Converter converter = new inj.UuidUtil.Converter(null);
 
 String uuid = converter.fromRecordId(account.Id);
 Id sameId = converter.toRecordId(uuid);

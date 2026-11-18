@@ -1,5 +1,5 @@
 /** Queueable flavor. Subclasses put their work in execute(). */
-public abstract class Queueable extends Chainable implements IQueueable, System.Queueable, Database.AllowsCallouts {
+public abstract class QueueableJob extends Chainable implements IQueueable, System.Queueable, Database.AllowsCallouts {
   @TestVisible
   private Integer delayMinutes;
 

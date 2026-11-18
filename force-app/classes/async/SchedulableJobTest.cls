@@ -1,9 +1,9 @@
 @IsTest
-private class SchedulableTest {
+private class SchedulableJobTest {
   private static List<String> trail = new List<String>();
   private static Id idSeenInside;
 
-  private class Nightly extends Schedulable {
+  private class Nightly extends SchedulableJob {
     private String cron;
 
     public override void execute() {
@@ -16,7 +16,7 @@ private class SchedulableTest {
     }
   }
 
-  private class Marker extends Queueable {
+  private class Marker extends QueueableJob {
     public override void execute() {
       trail.add('next');
     }
@@ -62,7 +62,7 @@ private class SchedulableTest {
       trail.add('nightly');
     }
     public String name() {
-      return 'SchedulableTest nightly';
+      return 'SchedulableJobTest nightly';
     }
     public String cronExpression() {
       return new Nightly().toCronExpression(Datetime.now().addMinutes(1));

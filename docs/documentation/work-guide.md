@@ -2,7 +2,7 @@
 
 `IWork` is a unit of work: you tell it which records to insert, update, upsert and delete, which emails to send and which platform events to publish, and `apply()` does it all in dependency order with as few DML statements as it can.
 
-Examples are written from a subscriber org, so package types carry the `unif.` prefix. `App.s` is the subscriber's own entry point (a class that holds `unif.Application.make(...)`; see the [extension guide](extension-guide.md#your-entry-point)).
+Examples are written from a subscriber org, so package types carry the `inj.` prefix. `App.s` is the subscriber's own entry point (a class that holds `inj.Application.make(...)`; see the [extension guide](extension-guide.md#your-entry-point)).
 
 ## Contents
 
@@ -22,7 +22,7 @@ Examples are written from a subscriber org, so package types carry the `unif.` p
 ## The basics
 
 ```apex
-unif.IWork work = App.s.work();
+inj.IWork work = App.s.work();
 ```
 
 `track()` takes a record to save. A record without an Id is inserted; a record with one is updated.
@@ -195,7 +195,7 @@ It is safe to track the same record from several places; the work sorts it out.
 Either way there is one update per record:
 
 ```apex
-unif.IWork work = App.s.work();
+inj.IWork work = App.s.work();
 work.track(new Account(Id = accountId, Rating = 'Hot'));
 work.track(new Account(Id = accountId, Industry = 'Energy'));
 work.apply(); // one update, setting both fields
@@ -210,7 +210,7 @@ The same is not done for deletes or upserts: purge a record once.
 `options()` returns the work's `Database.DMLOptions`, used for its inserts and updates:
 
 ```apex
-unif.IWork work = App.s.work();
+inj.IWork work = App.s.work();
 work.options().duplicateRuleHeader.allowSave = true;
 work.options().assignmentRuleHeader.useDefaultRule = true;
 work.track(leads).apply();
@@ -221,17 +221,17 @@ work.track(leads).apply();
 Setting `optAllOrNone = false` lets the records that can be saved go through. Nothing is thrown for the ones that cannot; the work lists them afterwards:
 
 ```apex
-unif.IWork work = App.s.work();
+inj.IWork work = App.s.work();
 work.options().optAllOrNone = false;
 work.track(accounts).apply();
 
-for (unif.IWorkFailure failure : work.failures()) {
+for (inj.IWorkFailure failure : work.failures()) {
   failure.getRecord();   // the instance you tracked; its Id is null if it was new
   failure.getMessage();  // the platform's messages, joined by '; '
   failure.getErrors();   // the platform's Database.Error list: status code, fields
 }
 
-unif.IWorkFailure mine = work.failureOf(accounts[0]); // null when that record was saved
+inj.IWorkFailure mine = work.failureOf(accounts[0]); // null when that record was saved
 ```
 
 - `failures()` covers inserts, updates, upserts and deletes, in the order the work met them. It is empty before `apply()`, and whenever `optAllOrNone` is true (a failure throws instead).
@@ -259,7 +259,7 @@ In user mode the platform checks the user's object permissions, field permission
 
 An upsert is refused in the same ways. One case is the work's own doing: on its own, an all-or-none upsert on an external Id by a user with no access to the object ends the transaction with an error Apex cannot catch, so the work checks first and throws the `SecurityException` of the table's first row.
 
-Nothing is trimmed for you: a record that sets a field the user may not write is refused whole. Leave such fields off the record (`unif.FieldUtil.crop` keeps a named set) or check them first. With `optAllOrNone = false` the refused record is left out and listed in `failures()`, like any other failed record. Emails and platform events are not affected by the mode.
+Nothing is trimmed for you: a record that sets a field the user may not write is refused whole. Leave such fields off the record (`inj.FieldUtil.crop` keeps a named set) or check them first. With `optAllOrNone = false` the refused record is left out and listed in `failures()`, like any other failed record. Emails and platform events are not affected by the mode.
 
 ---
 
@@ -279,7 +279,7 @@ In a trigger hook, build one work, track everything, and apply it once at the en
 
 ```apex
 public override void onAfterUpsert(Map<Id, SObject> oldMap) {
-  unif.IWork work = App.s.work();
+  inj.IWork work = App.s.work();
   for (Opportunity row : (List<Opportunity>) base().records()) {
     if (row.StageName == 'Closed Won') {
       work.track(new Task(WhatId = row.Id, Subject = 'Send the welcome pack'));

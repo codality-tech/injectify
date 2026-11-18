@@ -3,7 +3,7 @@
  * in a single queueable transaction. N captured jobs cost one enqueue, which keeps the caller
  * under the platform's limit on how many queueables an async transaction may start.
  */
-public class QueueableBundle extends Queueable {
+public class QueueableBundle extends QueueableJob {
   @TestVisible
   private static Integer executions = 0;
 

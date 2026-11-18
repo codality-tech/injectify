@@ -2,7 +2,7 @@
 
 How a subscriber org plugs its own classes into the framework: the entry point that registers them, custom query classes, domain classes that handle triggers, and services.
 
-Examples are written from a subscriber org, so package types carry the `unif.` prefix. `App.s` is the subscriber's own entry point, built in the first section.
+Examples are written from a subscriber org, so package types carry the `inj.` prefix. `App.s` is the subscriber's own entry point, built in the first section.
 
 ## Contents
 
@@ -21,10 +21,10 @@ The package does not give subscribers a ready-made application. You build one, o
 
 ```apex
 public class App {
-  public static unif.IApplication s {
+  public static inj.IApplication s {
     get {
       if (s == null) {
-        s = unif.Application.make(
+        s = inj.Application.make(
           null, // scheme: null uses the default
           new Map<Type, Type>{ IInvoicing.class => Invoicing.class }, // services
           new Map<Type, Type>{ Account.class => AccountQuery.class }, // queries
@@ -43,14 +43,14 @@ Each registry maps a key to the class the matching factory creates:
 | Registry | Key | The class must implement |
 | --- | --- | --- |
 | Services | an interface or class of yours | the key (it must be assignable to it) |
-| Queries | the object's class, `Account.class` | `unif.IQuery` (extend `unif.BaseQuery`) |
-| Domains | the object's class | `unif.IDomain` (extend `unif.BaseDomain`) |
-| Triggers | the object's class | `unif.ITriggered` (`unif.BaseDomain` does) |
+| Queries | the object's class, `Account.class` | `inj.IQuery` (extend `inj.BaseQuery`) |
+| Domains | the object's class | `inj.IDomain` (extend `inj.BaseDomain`) |
+| Triggers | the object's class | `inj.ITriggered` (`inj.BaseDomain` does) |
 
 - The key for an object is its class (`Account.class`), not its token (`Account.SObjectType`).
-- A pair that breaks these rules throws `unif.Application.FactoryException` when the application is made.
+- A pair that breaks these rules throws `inj.Application.FactoryException` when the application is made.
 - The four-argument `make` uses the domain registry for triggers as well. To handle an object's triggers with a class that is not its domain, use the five-argument form, which takes a separate trigger registry.
-- `unif.Application.make()` and `make(scheme)` start with empty registries. Any factory takes more pairs later: `App.s.qf().register(new Map<Type, Type>{ Contact.class => ContactQuery.class })`.
+- `inj.Application.make()` and `make(scheme)` start with empty registries. Any factory takes more pairs later: `App.s.qf().register(new Map<Type, Type>{ Contact.class => ContactQuery.class })`.
 - The factories create your classes with `Type.newInstance()`, so each registered class needs a constructor without arguments.
 
 An object with no registered query or domain class still works: `App.s.qf().make(Contact.SObjectType)` returns a plain query with the default field set, and `App.s.df().make(records)` a plain domain.
@@ -59,10 +59,10 @@ An object with no registered query or domain class still works: `App.s.qf().make
 
 ## Custom query classes
 
-Extend `unif.BaseQuery` to give an object its own default fields, conditions that always apply, or helper methods.
+Extend `inj.BaseQuery` to give an object its own default fields, conditions that always apply, or helper methods.
 
 ```apex
-global class AccountQuery extends unif.BaseQuery {
+global class AccountQuery extends inj.BaseQuery {
   global override Set<SObjectField> getDefaultFields() {
     return new Set<SObjectField>{ Account.Id, Account.Name, Account.Industry, Account.AnnualRevenue };
   }
@@ -87,7 +87,7 @@ List<Account> rows = (List<Account>) big.base().run();
 // SELECT Id, Name, Industry, AnnualRevenue FROM Account WHERE (Industry = :a0 AND AnnualRevenue > :a1)
 ```
 
-`base()` returns the query as a `unif.IQuery`. Everything a query can do is called through it; see [Working across the namespace](#working-across-the-namespace).
+`base()` returns the query as a `inj.IQuery`. Everything a query can do is called through it; see [Working across the namespace](#working-across-the-namespace).
 
 ### Default fields
 
@@ -101,12 +101,12 @@ List<Account> rows = (List<Account>) big.base().run();
 `onInitialized` runs when the query is bound to its object, before anyone else sees it. Use it for conditions and orderings that every query of the class should carry:
 
 ```apex
-global class OpenCaseQuery extends unif.BaseQuery {
+global class OpenCaseQuery extends inj.BaseQuery {
   global override Set<SObjectField> getDefaultFields() {
     return new Set<SObjectField>{ Case.Id, Case.Subject, Case.Priority };
   }
 
-  global override void onInitialized(unif.IModel source) {
+  global override void onInitialized(inj.IModel source) {
     base().addCondition(App.s.eq(Case.IsClosed, false));
     base().orderings().add(App.s.ordering(Case.CreatedDate, false, true));
   }
@@ -136,10 +136,10 @@ A query made this way has not been through the factory, so `getDefaultFields()` 
 
 ## Domain classes
 
-A domain class holds the logic for a set of records of one object: trigger handling, and whatever helper methods you add. Extend `unif.BaseDomain`.
+A domain class holds the logic for a set of records of one object: trigger handling, and whatever helper methods you add. Extend `inj.BaseDomain`.
 
 ```apex
-global class Opportunities extends unif.BaseDomain {
+global class Opportunities extends inj.BaseDomain {
   global Opportunities() {
     super();
   }
@@ -163,7 +163,7 @@ global class Opportunities extends unif.BaseDomain {
 
   public override void onAfterUpsert(Map<Id, SObject> oldMap) {
     Set<SObjectField> stage = new Set<SObjectField>{ Opportunity.StageName };
-    unif.IWork work = App.s.work();
+    inj.IWork work = App.s.work();
     for (Opportunity row : (List<Opportunity>) base().getChangedRecords(oldMap, stage)) {
       if (row.StageName == 'Closed Won') {
         work.track(new Task(WhatId = row.Id, Subject = 'Send the welcome pack'));
@@ -194,14 +194,14 @@ In the delete hooks the records are the ones being deleted (`Trigger.old`); ever
 
 ### Working with the records
 
-All of these are called through `base()`, which returns the domain as a `unif.IDomain`.
+All of these are called through `base()`, which returns the domain as a `inj.IDomain`.
 
 | Method | Returns |
 | --- | --- |
 | `records()` | A copy of the list. The records in it are the domain's own, so setting a field in a before hook changes the record being saved. |
 | `size()` | How many records. |
 | `toMap()` | The records by Id; empty when they have no Ids yet (before insert). |
-| `source()` | The object's `unif.IModel`: describe, field map, record types, paths. |
+| `source()` | The object's `inj.IModel`: describe, field map, record types, paths. |
 | `filter(condition)` | The records that meet a condition, tested in memory. |
 | `sort(ordering)` | A sorted copy. |
 | `getChangedRecords(oldMap, fields)` | The records whose value in any of the fields differs from `oldMap`. Fields are a `Set<SObjectField>` or a `Set<String>` of API names. |
@@ -213,7 +213,7 @@ All of these are called through `base()`, which returns the domain as a `unif.ID
 | `updateBlank(template, work)` | Copies the template's populated fields into the records' blank fields and tracks the records that changed. |
 | `updateDifferent(template, work)` | The same, into every field that differs. |
 
-A route is a field (`Opportunity.StageName`), a field API name, a list of fields that walks lookups, or a `unif.IPath`.
+A route is a field (`Opportunity.StageName`), a field API name, a list of fields that walks lookups, or a `inj.IPath`.
 
 Two things to know about `getChangedRecords`:
 
@@ -249,7 +249,7 @@ With `shouldEnforceSecurity()` returning true, the trigger first checks that the
 
 ```apex
 // The registered class (or a plain domain), from the factory
-unif.IDomain deals = App.s.df().make(records);
+inj.IDomain deals = App.s.df().make(records);
 
 // Your class, with its helper methods
 Opportunities mine = new Opportunities(records);
@@ -292,7 +292,7 @@ Each `disable` has a matching `enable`. They count: after two calls to `disable(
 `disable` is called from code. To let an administrator switch triggers off for a user, such as the one a data load or an integration runs as, give the application a rule that reads a custom permission:
 
 ```apex
-public class BypassTriggers implements unif.ITriggeredBypass {
+public class BypassTriggers implements inj.ITriggeredBypass {
   public Boolean bypasses(SObjectType token, TriggerOperation operation) {
     return FeatureManagement.checkPermission('Bypass_Triggers');
   }
@@ -315,16 +315,16 @@ Create the custom permission `Bypass_Triggers`, add it to a permission set and a
 
 ### A handler that is not a domain
 
-Anything that implements `unif.ITriggered` can handle an object's triggers. Register it in the trigger registry (the fifth argument of `make`):
+Anything that implements `inj.ITriggered` can handle an object's triggers. Register it in the trigger registry (the fifth argument of `make`):
 
 ```apex
-public class AuditTrail implements unif.ITriggered {
+public class AuditTrail implements inj.ITriggered {
   public void handleTrigger(
     TriggerOperation operation,
     List<SObject> newRecords,
     List<SObject> oldRecords,
     Map<Id, SObject> oldMap,
-    unif.IModel model
+    inj.IModel model
   ) {
     // called for every operation the trigger is declared for
   }
@@ -360,21 +360,21 @@ invoicing.invoice(wonIds);
 
 ## Working across the namespace
 
-The package's own classes (`Query`, `Domain`, the factories) are not visible outside its namespace. A subscriber sees the global interfaces (`unif.IQuery`, `unif.IDomain`, `unif.IWork`...), the two base classes, and the static entry points (`unif.Application`, `unif.Async`, `unif.FieldScope`, `unif.MockScheme`). The full list is in [package_api.apex](package_api.apex).
+The package's own classes (`Query`, `DomainRecords`, the factories) are not visible outside its namespace. A subscriber sees the global interfaces (`inj.IQuery`, `inj.IDomain`, `inj.IWork`...), the two base classes, and the static entry points (`inj.Application`, `inj.Async`, `inj.FieldScope`, `inj.MockScheme`). The full list is in [package_api.apex](package_api.apex).
 
 Three rules follow from that:
 
-**Call inherited methods through `base()`.** Your class extends `BaseQuery` or `BaseDomain`, but the methods it inherits from `Query` and `Domain` are not global, so they cannot be called directly, even on `this`:
+**Call inherited methods through `base()`.** Your class extends `BaseQuery` or `BaseDomain`, but the methods it inherits from `Query` and `DomainRecords` are not global, so they cannot be called directly, even on `this`:
 
 ```apex
 setLimit(100); // does not compile in a subscriber org
-base().setLimit(100); // works: base() is this object as a unif.IQuery
+base().setLimit(100); // works: base() is this object as a inj.IQuery
 ```
 
-The same goes for callers holding your type: `accountQuery.base().run()`, not `accountQuery.run()`. A variable typed as `unif.IQuery` or `unif.IDomain` needs no `base()`.
+The same goes for callers holding your type: `accountQuery.base().run()`, not `accountQuery.run()`. A variable typed as `inj.IQuery` or `inj.IDomain` needs no `base()`.
 
-**Query and domain classes are `global`.** They extend a class of the package, so they are declared `global`, with a `global` no-argument constructor or no constructor at all. A service, or a trigger handler that only implements `unif.ITriggered`, extends nothing from the package and can be `public`. The methods they override (`getDefaultFields`, `onInitialized`, the trigger hooks, `shouldRecycleInstance`, `shouldEnforceSecurity`) are global in the base class; declare the overrides `public` or `global`.
+**Query and domain classes are `global`.** They extend a class of the package, so they are declared `global`, with a `global` no-argument constructor or no constructor at all. A service, or a trigger handler that only implements `inj.ITriggered`, extends nothing from the package and can be `public`. The methods they override (`getDefaultFields`, `onInitialized`, the trigger hooks, `shouldRecycleInstance`, `shouldEnforceSecurity`) are global in the base class; declare the overrides `public` or `global`.
 
-**Framework exceptions are caught as `Exception`.** Apart from `unif.Application.FactoryException`, the framework's exception types are not global, so a subscriber cannot name them in a `catch`.
+**Framework exceptions are caught as `Exception`.** Apart from `inj.Application.FactoryException`, the framework's exception types are not global, so a subscriber cannot name them in a `catch`.
 
 See also: [query guide](query-guide.md), [work guide](work-guide.md), [async guide](async-guide.md), [testing guide](testing-guide.md).

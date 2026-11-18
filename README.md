@@ -1,4 +1,4 @@
-# Unify
+# Injectify
 
 An Apex framework for Salesforce that gives queries, conditions, triggers, DML and async jobs one consistent model. Fields are addressed as paths (`Contact` → `Account` → `Owner.Name`); a condition built from those paths can both compile into a SOQL `WHERE` clause and test records in memory, with the same answer.
 
@@ -19,10 +19,10 @@ Give your org one entry point:
 
 ```apex
 public class App {
-  public static unif.IApplication s {
+  public static inj.IApplication s {
     get {
       if (s == null) {
-        s = unif.Application.make(
+        s = inj.Application.make(
           null, // scheme: null uses the default
           new Map<Type, Type>(), // services
           new Map<Type, Type>(), // custom queries
@@ -39,7 +39,7 @@ public class App {
 Query, with bound values:
 
 ```apex
-unif.IQuery q = App.s.qf().make(Account.SObjectType);
+inj.IQuery q = App.s.qf().make(Account.SObjectType);
 q.fields().add(new Set<SObjectField>{ Account.Name, Account.Industry });
 q.fields().add('Owner', new Set<SObjectField>{ User.Name });
 q.filters().add(App.s.eq(Account.Industry, 'Energy'));
@@ -56,7 +56,7 @@ List<Account> energy = (List<Account>) q.run();
 Test records in memory with the same condition:
 
 ```apex
-unif.ICondition bigEnergy = App.s.model(Account.SObjectType)
+inj.ICondition bigEnergy = App.s.model(Account.SObjectType)
   .parseCondition('Industry = \'Energy\' AND AnnualRevenue > 1000000');
 Boolean matches = bigEnergy.evaluate(someAccount);
 ```
@@ -75,11 +75,11 @@ App.s.work()
 Save what can be saved, and learn what could not:
 
 ```apex
-unif.IWork work = App.s.work();
+inj.IWork work = App.s.work();
 work.options().optAllOrNone = false;
 work.track(company).track(person, Contact.AccountId, company).apply();
 
-for (unif.IWorkFailure failure : work.failures()) {
+for (inj.IWorkFailure failure : work.failures()) {
   System.debug(failure.getRecord() + ': ' + failure.getMessage());
 }
 // If Acme is refused, Lovelace is not inserted without it. Both are listed.
@@ -88,7 +88,7 @@ for (unif.IWorkFailure failure : work.failures()) {
 Handle triggers in a domain class:
 
 ```apex
-global class Accounts extends unif.BaseDomain {
+global class Accounts extends inj.BaseDomain {
   public override void onBeforeUpsert(Map<Id, SObject> oldMap) {
     // oldMap is null on insert
   }
@@ -102,9 +102,9 @@ trigger AccountTrigger on Account (before insert, before update, after insert, a
 Chain async work:
 
 ```apex
-unif.Async.queueable(new PrepareData())
-  .then(unif.Async.queryable(new ProcessRows()))
-  .then(unif.Async.queueable(new NotifyOwners()))
+inj.Async.queueable(new PrepareData())
+  .then(inj.Async.queryable(new ProcessRows()))
+  .then(inj.Async.queueable(new NotifyOwners()))
   .run();
 ```
 
@@ -120,7 +120,7 @@ unif.Async.queueable(new PrepareData())
 
 ## Install
 
-Not yet published. Beta versions of the unlocked package (namespace `unif`) are built, but none is promoted. To try it now, deploy the source to a scratch org:
+Not yet published. Beta versions of the unlocked package (namespace `inj`) are built, but none is promoted. To try it now, deploy the source to a scratch org:
 
 ```bash
 sf org create scratch --definition-file config/project-scratch-def.json --alias framework-dev
@@ -128,7 +128,7 @@ sf project deploy start -d force-app -o framework-dev
 sf apex test run -l RunLocalTests -c -o framework-dev
 ```
 
-Deployed as source, the classes have no namespace: write `IQuery` where the guides, which are written for the package, write `unif.IQuery`.
+Deployed as source, the classes have no namespace: write `IQuery` where the guides, which are written for the package, write `inj.IQuery`.
 
 ## Documentation
 
@@ -138,7 +138,7 @@ Deployed as source, the classes have no namespace: write `IQuery` where the guid
 - [Work guide](docs/documentation/work-guide.md): DML ordering, relationships, merging
 - [Testing guide](docs/documentation/testing-guide.md): testing queries, domains, async and work; `MockScheme`
 - [Utilities guide](docs/documentation/utilities-guide.md): test data, CSV, field and record helpers, persistent values, limits
-- For coding agents: [llms.txt](llms.txt) indexes these guides, and [skills/unify-apex](skills/unify-apex/SKILL.md) is a skill with the rules for writing subscriber code
+- For coding agents: [llms.txt](llms.txt) indexes these guides, and [skills/injectify-apex](skills/injectify-apex/SKILL.md) is a skill with the rules for writing subscriber code
 - [API surface](docs/documentation/package_api.apex): every global type and member
 - [How it compares](docs/documentation/comparison.md): prior art, what is different here, and when to choose another library
 

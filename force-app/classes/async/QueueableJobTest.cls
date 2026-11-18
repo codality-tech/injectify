@@ -1,10 +1,10 @@
 @IsTest
-private class QueueableTest {
+private class QueueableJobTest {
   private static List<String> trail = new List<String>();
   private static Id idSeenInside;
   private static Object sharedSeenInside;
 
-  private class Recorder extends Queueable {
+  private class Recorder extends QueueableJob {
     private String label;
     private List<Chainable> startsInside = new List<Chainable>();
 

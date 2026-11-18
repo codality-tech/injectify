@@ -217,7 +217,7 @@ public abstract class Chainable implements IJob {
   protected void runBundled(Chainable bundle) {
     bundle.adopt(this);
     depth = bundle.depth;
-    if (this instanceof Queueable) {
+    if (this instanceof QueueableJob) {
       jobId = bundle.jobId;
       performLending(Phase.BODY, null);
       continueChain();

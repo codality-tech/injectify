@@ -2,7 +2,7 @@
 
 How to test code built on the framework: queries, domain classes and triggers, work, and async jobs. It covers what is specific to the framework, not Apex testing in general.
 
-Examples are written from a subscriber org, so package types carry the `unif.` prefix. `App.s` is the subscriber's own entry point (a class that holds `unif.Application.make(...)`; see the [extension guide](extension-guide.md#your-entry-point)). `AccountQuery` and `Opportunities` are the example classes from that guide.
+Examples are written from a subscriber org, so package types carry the `inj.` prefix. `App.s` is the subscriber's own entry point (a class that holds `inj.Application.make(...)`; see the [extension guide](extension-guide.md#your-entry-point)). `AccountQuery` and `Opportunities` are the example classes from that guide.
 
 ## Contents
 
@@ -63,7 +63,7 @@ A condition gives the same answer in memory as in SOQL, so a rule can be tested 
 ```apex
 @IsTest
 static void theRuleMatchesLargeEnergyAccounts() {
-  unif.ICondition rule = App.s.model(Account.SObjectType)
+  inj.ICondition rule = App.s.model(Account.SObjectType)
     .parseCondition('Industry = \'Energy\' AND AnnualRevenue > 1000000');
 
   Assert.isTrue(rule.evaluate(new Account(Industry = 'Energy', AnnualRevenue = 5000000)));
@@ -75,7 +75,7 @@ static void theRuleMatchesLargeEnergyAccounts() {
 
 ## Mocking queries with MockScheme
 
-`unif.MockScheme` is a scheme for tests: describes are real, but queries return the rows you register instead of reading the database, and every query is recorded with its bind values. Inject it when you build the application under test:
+`inj.MockScheme` is a scheme for tests: describes are real, but queries return the rows you register instead of reading the database, and every query is recorded with its bind values. Inject it when you build the application under test:
 
 ```apex
 @IsTest
@@ -83,8 +83,8 @@ static void flagsLargeAccounts() {
   List<Account> canned = new List<Account>{
     new Account(Name = 'Acme', AnnualRevenue = 5000000) // canned rows need no Id
   };
-  unif.MockScheme scheme = new unif.MockScheme().returning(Account.SObjectType, canned);
-  unif.IApplication app = unif.Application.make(scheme);
+  inj.MockScheme scheme = new inj.MockScheme().returning(Account.SObjectType, canned);
+  inj.IApplication app = inj.Application.make(scheme);
 
   List<Account> flagged = new AccountReview(app).largeAccounts(); // queries through app; no inserts needed
 
@@ -98,14 +98,14 @@ The code under test has to query through the application it is given, so pass th
 
 ```apex
 public class AccountReview {
-  private unif.IApplication app;
+  private inj.IApplication app;
 
-  public AccountReview(unif.IApplication app) {
+  public AccountReview(inj.IApplication app) {
     this.app = app;
   }
 
   public List<Account> largeAccounts() {
-    unif.IQuery large = app.qf().make(Account.SObjectType);
+    inj.IQuery large = app.qf().make(Account.SObjectType);
     large.addCondition(app.gt(Account.AnnualRevenue, 1000000));
     return (List<Account>) large.run();
   }
@@ -124,17 +124,17 @@ What the mock does:
 Searches are mocked the same way. A search returns one list per object named after `RETURNING`, in that order, holding the rows registered for that object, and its SOSL is recorded with the queries (with no bind values):
 
 ```apex
-unif.MockScheme scheme = new unif.MockScheme().returning(Account.SObjectType, canned);
-unif.IApplication app = unif.Application.make(scheme);
-unif.IQuery accounts = app.qf().make(Account.SObjectType);
-unif.IQuery contacts = app.qf().make(Contact.SObjectType);
+inj.MockScheme scheme = new inj.MockScheme().returning(Account.SObjectType, canned);
+inj.IApplication app = inj.Application.make(scheme);
+inj.IQuery accounts = app.qf().make(Account.SObjectType);
+inj.IQuery contacts = app.qf().make(Contact.SObjectType);
 
-List<List<SObject>> found = app.searchQuery(new List<unif.IQuery>{ accounts, contacts }).run('Acme');
+List<List<SObject>> found = app.searchQuery(new List<inj.IQuery>{ accounts, contacts }).run('Acme');
 // found[0] is the canned accounts; found[1] is an empty List<Contact>
 // scheme.queries()[0] starts with FIND {Acme} RETURNING Account(
 ```
 
-An application made with `unif.Application.make(scheme)` has empty registries. To use your registered classes with a mock, call the longer `make` with the same registries your `App` uses.
+An application made with `inj.Application.make(scheme)` has empty registries. To use your registered classes with a mock, call the longer `make` with the same registries your `App` uses.
 
 ---
 
@@ -235,7 +235,7 @@ Things that behave differently in a test:
 To check that code decided to do nothing, ask the work before applying it:
 
 ```apex
-unif.IWork work = App.s.work();
+inj.IWork work = App.s.work();
 new Renewals(work).prepare(noRecords);
 Assert.isFalse(work.hasWork());
 ```
@@ -255,7 +255,7 @@ static void stampsTheAccounts() {
   insert row;
 
   Test.startTest();
-  unif.Async.queueable(new StampAccounts(new Set<Id>{ row.Id })).run();
+  inj.Async.queueable(new StampAccounts(new Set<Id>{ row.Id })).run();
   Test.stopTest();
 
   Assert.isTrue([SELECT Description FROM Account WHERE Id = :row.Id].Description.startsWith('Stamped'));
@@ -264,14 +264,14 @@ static void stampsTheAccounts() {
 
 To test a handler's logic on its own, call it directly: `new StampAccounts(ids).queueableExecute();`.
 
-To test a whole chain, set `unif.Async.synchronousInTests = true` first. Every job then runs in the test's own transaction, in chain order:
+To test a whole chain, set `inj.Async.synchronousInTests = true` first. Every job then runs in the test's own transaction, in chain order:
 
 ```apex
 @IsTest
 static void theWholeChainRuns() {
-  unif.Async.synchronousInTests = true;
+  inj.Async.synchronousInTests = true;
 
-  unif.Async.queueable(new CountAccounts()).then(unif.Async.queueable(new ReportCount())).run();
+  inj.Async.queueable(new CountAccounts()).then(inj.Async.queueable(new ReportCount())).run();
 
   // every job has run; assert on the results
 }
@@ -283,7 +283,7 @@ The [async guide](async-guide.md#testing) has the details, including values shar
 
 ## What a subscriber test cannot do
 
-- **Subclass `Query`, `Domain` or the factories.** They are not visible outside the package. Test doubles extend `unif.BaseQuery` or `unif.BaseDomain`, or implement a global interface such as `unif.ITriggered` or `unif.IScheme`.
+- **Subclass `Query`, `DomainRecords` or the factories.** They are not visible outside the package. Test doubles extend `inj.BaseQuery` or `inj.BaseDomain`, or implement a global interface such as `inj.ITriggered` or `inj.IScheme`.
 - **Fake an `AggregateResult`.** Put aggregate logic behind a method of your own that returns plain values, and stand that method in.
 - **Replace `App.s` from outside.** Its setter is private in the example `App`. Either pass the application into the code under test (as `AccountReview` does above), or give `App` a `@TestVisible` way to set it.
 

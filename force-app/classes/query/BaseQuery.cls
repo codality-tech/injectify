@@ -9,9 +9,9 @@
  *
  * Example:
  * <pre>
- * // App is the subscriber's own class holding its unif.Application
- * global class AccountQuery extends unif.BaseQuery {
- *     global override void onInitialized(unif.IModel source) {
+ * // App is the subscriber's own class holding its inj.Application
+ * global class AccountQuery extends inj.BaseQuery {
+ *     global override void onInitialized(inj.IModel source) {
  *         // Base initialization is guaranteed to have completed
  *         // Add your custom initialization here
  *     }
@@ -42,7 +42,7 @@ global abstract inherited sharing class BaseQuery extends Query implements IQuer
    *
    * Example subscriber usage:
    * <pre>
-   * global class AccountQuery extends unif.BaseQuery {
+   * global class AccountQuery extends inj.BaseQuery {
    *   global AccountQuery() {
    *     super(App.s.model(Account.SObjectType));
    *   }
@@ -124,7 +124,7 @@ global abstract inherited sharing class BaseQuery extends Query implements IQuer
    *
    * Example:
    * <pre>
-   * global override void onInitialized(unif.IModel source) {
+   * global override void onInitialized(inj.IModel source) {
    *     // Access Query methods via the base() method for cross-namespace access
    *     this.base().fields().add(new Set<SObjectField>{ Account.Name, Account.Type });
    *
@@ -178,8 +178,8 @@ global abstract inherited sharing class BaseQuery extends Query implements IQuer
    *
    * Example usage in a subscriber namespace:
    * <pre>
-   * global class MyQuery extends unif.BaseQuery {
-   *     global override void onInitialized(unif.IModel source) {
+   * global class MyQuery extends inj.BaseQuery {
+   *     global override void onInitialized(inj.IModel source) {
    *         // Access Query methods via base()
    *         this.base().setLimit(100);
    *         this.base().addCondition(...);

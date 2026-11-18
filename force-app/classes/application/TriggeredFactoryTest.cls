@@ -6,7 +6,7 @@ private class TriggeredFactoryTest {
   private static Integer secureCalls = 0;
 
   // Faux domain for testing state and config
-  private class FauxAccounts extends Domain {
+  private class FauxAccounts extends DomainRecords {
     public Boolean triggerCalled = false;
     public FauxAccounts() {
       super();
@@ -38,7 +38,7 @@ private class TriggeredFactoryTest {
   // What each recycled phase saw: the instance's number and the industries it catalogued.
   private static List<String> phasesSeen = new List<String>();
 
-  private class WatchingAccounts extends Domain {
+  private class WatchingAccounts extends DomainRecords {
     private Integer instanceNumber;
 
     public WatchingAccounts() {
@@ -883,7 +883,7 @@ private class TriggeredFactoryTest {
   }
 
   // Test domain that opts out of recycling
-  private class NonRecyclableDomain extends Domain {
+  private class NonRecyclableDomain extends DomainRecords {
     public Integer instanceId;
 
     public NonRecyclableDomain() {

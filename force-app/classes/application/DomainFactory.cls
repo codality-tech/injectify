@@ -39,7 +39,7 @@ public class DomainFactory extends Application.Factory implements IDomainFactory
       return domain;
     }
     // Fallback: return base Domain instance with records
-    return new Domain(model, records);
+    return new DomainRecords(model, records);
   }
 
   //* Factory method with token only (empty records)

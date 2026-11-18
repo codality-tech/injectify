@@ -4,11 +4,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-**Unify** is a Salesforce unlocked package (namespace: `unif`) that provides a comprehensive Apex framework for rapid application development. It uses factory patterns, dependency injection, and interface-based abstractions to provide unified access to SOQL queries, DML operations, trigger handlers, async operations, and domain logic.
+**Injectify** is a Salesforce unlocked package (namespace: `inj`) that provides a comprehensive Apex framework for rapid application development. It uses factory patterns, dependency injection, and interface-based abstractions to provide unified access to SOQL queries, DML operations, trigger handlers, async operations, and domain logic.
 
 **Current Version:** 0.2.7 (beta 0.2.7-5 built 2026-11-14 and installed in `s-unify`, not promoted; changes under Unreleased in CHANGELOG.md)
 **Source API Version:** 68.0
-**Package Alias:** Unify
+**Package Alias:** Injectify
 
 **Versioning Convention:** The `versionName` in `sfdx-project.json` should match the actual version number (e.g., "ver 0.2.0" for version 0.1.3). Update both `versionName` and `versionNumber` together when incrementing versions.
 
@@ -34,7 +34,7 @@ sf apex test run -t QueryFactoryTest -c
 
 ```powershell
 # Create new package version
-sf package version create --package "Unify" --path force-app --wait 10 --installation-key-bypass --code-coverage
+sf package version create --package "Injectify" --path force-app --wait 10 --installation-key-bypass --code-coverage
 
 # Install package to target org
 sf package install --package "Unify@0.2.7-5" --target-org <alias> --wait 10
@@ -79,7 +79,7 @@ Application (entry point; extends Core)
 #### 1. Application / App (Entry Point)
 
 - **Inside the package:** `Application.s` is a lazily made default instance with empty registries. It is `public`, so subscribers cannot reach it
-- **In a subscriber org:** `unif.Application.make(...)` builds an instance with the subscriber's registries; by convention it is held in the subscriber's own `App` class as `App.s` (see `unify`). The guides are written that way
+- **In a subscriber org:** `inj.Application.make(...)` builds an instance with the subscriber's registries; by convention it is held in the subscriber's own `App` class as `App.s` (see `unify`). The guides are written that way
 - **Extends:** Core (inherits modeling, filtering, condition building)
 - **Manages:** Four primary factories (query, domain, service, triggered)
 
@@ -225,7 +225,7 @@ See the [query guide](docs/documentation/query-guide.md) for the exact text each
 #### 6. Domain System
 
 - **DomainFactory** creates Domain instances; a domain class is registered against the object's type (`Account.class`)
-- **Domain** encapsulates business logic and implements ITriggered for trigger handling
+- **DomainRecords** (behind `IDomain` and `BaseDomain`) encapsulates business logic and implements ITriggered for trigger handling
 - **Trigger hooks:** `onBeforeUpsert()`, `onAfterUpsert()`, `onBeforeDelete()`, `onAfterDelete()`, `onAfterUndelete()`
 - **Utilities:** filter(), sort(), segment(), catalog(), collectRecords(), getChangedRecords(), updateBlank(), updateDifferent(), and aggregate() for COUNT/COUNT_DISTINCT/SUM/AVG/MIN/MAX over the loaded records (nulls skipped)
 
@@ -300,7 +300,7 @@ Async.queueable(new ProcessHandler())
     .run();
 ```
 
-**Job Types:** `Queueable`, `BatchQueryable`, `BatchIterable`, `Schedulable` (simplified from Chainable\* naming)
+**Job Types:** `QueueableJob`, `BatchQueryable`, `BatchIterable`, `SchedulableJob` (the `Job` suffix keeps the two names clear of `System.Queueable` and `System.Schedulable`)
 
 ## Extension Patterns & Documentation
 
@@ -310,7 +310,7 @@ Subscribers can extend the framework by creating custom query and domain classes
 
 **BaseQuery Extension:**
 
-- Extend `unif.BaseQuery` for custom query classes
+- Extend `inj.BaseQuery` for custom query classes
 - Override `onInitialized(IModel source)` hook for custom initialization
 - Override `getDefaultFields()` to specify default field sets (leave it out and the factory selects every field)
 - Declare the class `global`; overrides are `public` or `global`, never `protected`
@@ -318,7 +318,7 @@ Subscribers can extend the framework by creating custom query and domain classes
 
 **BaseDomain Extension:**
 
-- Extend `unif.BaseDomain` for custom domain/trigger classes
+- Extend `inj.BaseDomain` for custom domain/trigger classes
 - Override `onBeforeUpsert(Map<Id, SObject> oldMap)` for INSERT/UPDATE logic
 - Override `onAfterUpsert(Map<Id, SObject> oldMap)` for post-processing
 - Check `oldMap == null` to distinguish INSERT from UPDATE
@@ -327,13 +327,13 @@ Subscribers can extend the framework by creating custom query and domain classes
 **Example:**
 
 ```apex
-global class AccountQuery extends unif.BaseQuery {
+global class AccountQuery extends inj.BaseQuery {
     global override Set<SObjectField> getDefaultFields() {
         return new Set<SObjectField>{ Account.Id, Account.Name, Account.Type };
     }
 }
 
-global class Accounts extends unif.BaseDomain {
+global class Accounts extends inj.BaseDomain {
     public override void onBeforeUpsert(Map<Id, SObject> oldMap) {
         if (oldMap == null) {
             // INSERT logic
@@ -569,7 +569,7 @@ Wait for successful deployment/test completion before proceeding.
 
 ## Important Notes
 
-- **Namespace:** `unif` (used in subscriber orgs accessing package)
+- **Namespace:** `inj` (used in subscriber orgs accessing package)
 - **API Version:** All new metadata should use sourceApiVersion from `sfdx-project.json` (currently 68.0)
 - **Initialization:** Application can be initialized empty (uses defaults) or with custom registries
 - **Schemes:** `SchemeDefault` (describes cached per transaction) is used unless one is injected; `MockScheme` returns registered rows instead of querying, for tests
@@ -578,4 +578,4 @@ Wait for successful deployment/test completion before proceeding.
 
 ## Subscriber Repository (Usage Examples)
 
-The sibling repository `../unify` consumes the package from a subscriber org (`s-unify`): its own `App` class holding `unif.Application.make(...)`, custom queries and domains, trigger setup, and cross-namespace use of `unif.` types.
+The sibling repository `../unify` consumes the package from a subscriber org (`s-unify`): its own `App` class holding `inj.Application.make(...)`, custom queries and domains, trigger setup, and cross-namespace use of `inj.` types.

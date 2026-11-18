@@ -1,4 +1,4 @@
-public class HandleableSchedulable extends Schedulable implements IHandleable {
+public class HandleableSchedulable extends SchedulableJob implements IHandleable {
   private ISchedulableHandler handler;
 
   public HandleableSchedulable(ISchedulableHandler handler) {

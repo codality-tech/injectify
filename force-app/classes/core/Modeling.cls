@@ -376,7 +376,7 @@ public class Modeling {
     }
 
     public IDomain domain(List<SObject> rows) {
-      Domain plain = new Domain();
+      DomainRecords plain = new DomainRecords();
       plain.init(this, rows);
       return plain;
     }

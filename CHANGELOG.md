@@ -26,7 +26,7 @@ All notable changes to this project. Versions follow [semantic versioning](https
 ### Changed
 
 - **API version 68.0** (was 60.0). Describes now include fields added to the platform since 60.0, so default field sets pick up new standard fields. Default field sets leave out fields no user can be given access to, such as the license-gated Einstein Account Tier.
-- `Work`, `Persistent`, `Schedulable`, `SchemeDefault` and `MockScheme` declare `inherited sharing`, and their DML and queries state system mode explicitly. Behavior is unchanged.
+- `Work`, `Persistent`, `SchedulableJob`, `SchemeDefault` and `MockScheme` declare `inherited sharing`, and their DML and queries state system mode explicitly. Behavior is unchanged.
 - **Async engine rebuilt** on a singly linked chain: `then()` appends at the end and returns the job it was called on; a job may appear in a chain once; chains are capped at 20 waiting jobs and 40 in a lineage. Captured jobs are handled in a fixed order: synchronous jobs run, then the chain becomes released jobs (in tests; outside tests they start at once), one queueable bundling the immediate jobs, prepended jobs, the jobs already waiting, and appended jobs; ignored jobs are dropped. Job ids come from the platform context, and a handler's `batchDefaultSize()` is honored.
 - **Inline SOQL** (`toSoql()`): string values are escaped, and dates, datetimes and times are written as SOQL literals. `run()` still binds values.
 - **In-memory LIKE** ignores case and matches across line breaks, as SOQL does.
@@ -42,6 +42,7 @@ All notable changes to this project. Versions follow [semantic versioning](https
 - `ModelFields` checks every untrusted field against the object, not a sample of three.
 - `Domain.updateDifferent` and `updateBlank` reject a template of another object type.
 - Schedulable handlers that return a blank name or cron expression get the handler's class name and a run one minute ahead. `unschedule()` matches the job name exactly.
+- **Three internal classes are renamed:** `Queueable` to `QueueableJob`, `Schedulable` to `SchedulableJob` and `Domain` to `DomainRecords`. Deployed as source, with no namespace, the old names hid `System.Queueable`, `System.Schedulable` and `System.Domain` from every other class in the org: a class that said `implements Queueable` stopped compiling. The classes are not `global`, so code that uses the package is unaffected.
 - **Enum order:** the values of `Enums.Comparator`, `Enums.SearchScope` and `Enums.CaptureMode` are listed in a new order. Names are unchanged, but code that relies on `ordinal()` or on the order of `values()` sees different results.
 - Utilities:
   - `CsvUtil` quotes per RFC 4180;

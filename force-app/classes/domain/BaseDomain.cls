@@ -9,12 +9,12 @@
  *
  * Example:
  * <pre>
- * global class AccountDomain extends unif.BaseDomain {
+ * global class AccountDomain extends inj.BaseDomain {
  *     global AccountDomain() {
  *         super();
  *     }
  *
- *     protected override void onInitialized(unif.IModel source, List&lt;SObject&gt; records) {
+ *     protected override void onInitialized(inj.IModel source, List&lt;SObject&gt; records) {
  *         // Base initialization is guaranteed to have completed
  *         // Add your custom initialization here
  *     }
@@ -24,7 +24,7 @@
  * @see Domain
  * @see IDomain
  */
-global abstract class BaseDomain extends Domain implements IDomain {
+global abstract class BaseDomain extends DomainRecords implements IDomain {
   /**
    * No-argument constructor for factory usage.
    */
@@ -40,7 +40,7 @@ global abstract class BaseDomain extends Domain implements IDomain {
    *
    * Example subscriber usage:
    * <pre>
-   * public class AccountDomain extends unif.BaseDomain {
+   * public class AccountDomain extends inj.BaseDomain {
    *   public AccountDomain(List<Account> records) {
    *     super(Application.s.model('Account'), records);
    *   }
@@ -92,7 +92,7 @@ global abstract class BaseDomain extends Domain implements IDomain {
    *
    * Example:
    * <pre>
-   * global override void onInitialized(unif.IModel source, List&lt;SObject&gt; records) {
+   * global override void onInitialized(inj.IModel source, List&lt;SObject&gt; records) {
    *     // Access Domain methods via the base() method for cross-namespace access
    *     List&lt;SObject&gt; filtered = this.base().filter(
    *         Application.s.eq(Account.IsActive__c, true)
@@ -207,7 +207,7 @@ global abstract class BaseDomain extends Domain implements IDomain {
    *
    * Example:
    * <pre>
-   * protected override void onInitialized(unif.IModel source, List&lt;SObject&gt; records) {
+   * protected override void onInitialized(inj.IModel source, List&lt;SObject&gt; records) {
    *     // Access Domain methods via base()
    *     List&lt;SObject&gt; filtered = this.base().filter(someCondition);
    *     Map&lt;String, List&lt;SObject&gt;&gt; segments = this.base().segment('Industry');

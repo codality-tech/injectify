@@ -1,12 +1,12 @@
 ---
-name: unify-apex
-description: Write and review Apex that uses the Unify framework (namespace `unif`) in a Salesforce subscriber org - queries and conditions, domain classes and triggers, the unit of work, async jobs, and tests. Use when code references `unif.`, `App.s`, `BaseQuery`, `BaseDomain`, `IWork` or `unif.Async`.
+name: injectify-apex
+description: Write and review Apex that uses the Injectify framework (namespace `inj`) in a Salesforce subscriber org - queries and conditions, domain classes and triggers, the unit of work, async jobs, and tests. Use when code references `inj.`, `App.s`, `BaseQuery`, `BaseDomain`, `IWork` or `inj.Async`.
 ---
 
-# Writing Apex with Unify
+# Writing Apex with Injectify
 
-Unify is an unlocked package. Your code lives outside its namespace, so it sees only the package's
-`global` types, always with the `unif.` prefix. Everything below is written from that side.
+Injectify is an unlocked package. Your code lives outside its namespace, so it sees only the package's
+`global` types, always with the `inj.` prefix. Everything below is written from that side.
 
 When a detail is not covered here, read the guide rather than guess; the signatures are in
 `docs/documentation/package_api.apex`.
@@ -26,10 +26,10 @@ An org has one class of its own, by convention `App`, that builds the applicatio
 
 ```apex
 public class App {
-  public static unif.IApplication s {
+  public static inj.IApplication s {
     get {
       if (s == null) {
-        s = unif.Application.make(
+        s = inj.Application.make(
           null, // scheme: null uses the default
           new Map<Type, Type>(), // services
           new Map<Type, Type>{ Account.class => AccountQuery.class }, // query classes
@@ -51,19 +51,19 @@ Look for an existing `App` before writing one. `App.s` gives the factories (`qf(
 1. **Registry keys are types.** `Account.class => Accounts.class`. `Account.SObjectType` as a key
    does not compile.
 2. **Query and domain classes are `global`**, with a `global` no-argument constructor (or no
-   constructor). Services and handlers that only implement `unif.ITriggered` may be `public`. Overrides of framework hooks are `public` or `global`. `protected override` does
+   constructor). Services and handlers that only implement `inj.ITriggered` may be `public`. Overrides of framework hooks are `public` or `global`. `protected override` does
    not compile across the namespace.
 3. **Inherited methods go through `base()`** inside a query or domain class: `base().records()`,
    `base().fields()`, `base().addCondition(...)`.
-4. **Only `global` types can be named.** `unif.Query`, `unif.Domain`, `unif.Work` are not visible;
-   use `unif.IQuery`, `unif.IDomain`, `unif.IWork`.
-5. **Catch `Exception`** for framework errors. Only `unif.Application.FactoryException` and the
+4. **Only `global` types can be named.** `inj.Query`, `inj.Domain`, `inj.Work` are not visible;
+   use `inj.IQuery`, `inj.IDomain`, `inj.IWork`.
+5. **Catch `Exception`** for framework errors. Only `inj.Application.FactoryException` and the
    utility classes' exceptions are global.
 
 ## Queries
 
 ```apex
-unif.IQuery q = App.s.qf().make(Account.SObjectType); // starts with the default fields
+inj.IQuery q = App.s.qf().make(Account.SObjectType); // starts with the default fields
 q.fields().add(new Set<SObjectField>{ Account.Name, Account.Industry });
 q.fields().add('Owner', new Set<SObjectField>{ User.Name }); // through a lookup
 q.filters().add(App.s.eq(Account.Industry, 'Energy'));
@@ -86,7 +86,7 @@ List<Account> rows = (List<Account>) q.run();
 ## Domain classes and triggers
 
 ```apex
-global class Accounts extends unif.BaseDomain {
+global class Accounts extends inj.BaseDomain {
   global Accounts() {
     super();
   }
@@ -111,7 +111,7 @@ returns the records where one of the fields changed (every record on insert).
 
 Switch triggers off with `App.s.tf().disable(...)` and back on with the matching `enable(...)`;
 the calls count, so they nest. To switch them off for some users, write a class implementing
-`unif.ITriggeredBypass` (for example returning `FeatureManagement.checkPermission('Bypass_Triggers')`)
+`inj.ITriggeredBypass` (for example returning `FeatureManagement.checkPermission('Bypass_Triggers')`)
 and register it once with `App.s.tf().disableWhen(rule)`.
 
 ## Saving records
@@ -119,7 +119,7 @@ and register it once with `App.s.tf().disableWhen(rule)`.
 Build one unit of work, track everything, apply once:
 
 ```apex
-unif.IWork work = App.s.work();
+inj.IWork work = App.s.work();
 work.track(account); // no Id: insert; Id: update
 work.track(contact, Contact.AccountId, account); // sets the lookup after the parent is inserted
 work.purge(stale); // delete
@@ -134,20 +134,20 @@ work.apply();
 - In a trigger hook, apply the work at the end of the hook, not inside a loop.
 - A failed record throws a `DmlException`. To save what can be saved, set
   `work.options().optAllOrNone = false` before `apply()` and read `work.failures()` after it: each
-  `unif.IWorkFailure` has `getRecord()`, `getMessage()` and `getErrors()`.
+  `inj.IWorkFailure` has `getRecord()`, `getMessage()` and `getErrors()`.
 
 ## Async jobs
 
 Write a handler, hand it to a factory, chain with `then`:
 
 ```apex
-public class StampAccounts implements unif.IQueueableHandler {
+public class StampAccounts implements inj.IQueueableHandler {
   public void queueableExecute() {
     // the work
   }
 }
 
-unif.Async.queueable(new StampAccounts()).then(unif.Async.queryable(new SweepHandler())).run();
+inj.Async.queueable(new StampAccounts()).then(inj.Async.queryable(new SweepHandler())).run();
 ```
 
 Factories: `queueable`, `queryable` (batch over an `IQuery`), `iterable` (batch over an iterable),
@@ -157,10 +157,10 @@ started in a way the platform allows.
 ## Tests
 
 - Assert on `toSoql()` to test a query's shape without data.
-- `unif.MockScheme` returns rows you register instead of reading the database:
-  `unif.Application.make(new unif.MockScheme().returning(Account.SObjectType, rows))`.
-- `unif.Async.synchronousInTests = true` runs a whole chain inside the test.
-- `unif.IdUtil.generateId(Account.SObjectType)` makes an Id for a record that is never inserted.
+- `inj.MockScheme` returns rows you register instead of reading the database:
+  `inj.Application.make(new inj.MockScheme().returning(Account.SObjectType, rows))`.
+- `inj.Async.synchronousInTests = true` runs a whole chain inside the test.
+- `inj.IdUtil.generateId(Account.SObjectType)` makes an Id for a record that is never inserted.
 - Tests that insert records fire the org's triggers; `App.s.tf().disable()` turns the framework's
   off for the transaction.
 
@@ -168,6 +168,6 @@ started in a way the platform allows.
 
 - Does every registry key use `.class`?
 - Is every query and domain class `global`, with `public` or `global` overrides?
-- Is anything in the package named without `unif.`, or named that is not in `package_api.apex`?
+- Is anything in the package named without `inj.`, or named that is not in `package_api.apex`?
 - Is each unit of work applied exactly once, outside loops?
 - Does a query that takes user input bind it (`run()`), rather than execute `toSoql()`?

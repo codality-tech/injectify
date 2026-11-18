@@ -1,7 +1,7 @@
 @IsTest
-public class DomainTest {
+public class DomainRecordsTest {
   // Test domain class that extends Domain
-  public class TestDomain extends Domain {
+  public class TestDomain extends DomainRecords {
     public Boolean onBeforeInsertCalled = false;
     public Boolean onAfterInsertCalled = false;
     public Boolean onBeforeUpdateCalled = false;
@@ -59,7 +59,7 @@ public class DomainTest {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 2];
 
     // Test constructor with records
-    Domain domain3 = new Domain(null, accounts);
+    DomainRecords domain3 = new DomainRecords(null, accounts);
     System.assertEquals(
       2,
       domain3.records().size(),
@@ -67,14 +67,14 @@ public class DomainTest {
     );
 
     // Test init method
-    Domain domain1 = new Domain(null, accounts);
+    DomainRecords domain1 = new DomainRecords(null, accounts);
     System.assertEquals(
       2,
       domain1.records().size(),
       'Domain should have 2 records after init'
     );
 
-    Domain domain2 = new Domain(
+    DomainRecords domain2 = new DomainRecords(
       Application.s.model(Account.sobjecttype),
       new List<Account>{ accounts[0] }
     );
@@ -92,7 +92,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     // Test size
@@ -139,7 +139,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     // Test filter with condition
@@ -168,7 +168,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     // Test sort with ordering
@@ -197,7 +197,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     // Test with null existing records (should return all records)
@@ -251,7 +251,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     // Test catalog by field name
@@ -296,7 +296,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     // Test aggregate by field name
@@ -310,7 +310,7 @@ public class DomainTest {
       new Account(Name = 'Already Software', Industry = 'Software'),
       new Account(Name = 'Retail', Industry = 'Retail')
     };
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
     IWork work = new Work();
 
@@ -334,7 +334,7 @@ public class DomainTest {
       new Account(Name = 'A', Description = '   ', Industry = 'Software'),
       new Account(Name = 'B', Description = 'keep me')
     };
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     domain.updateBlank(
@@ -350,7 +350,7 @@ public class DomainTest {
 
   @IsTest
   static void testTemplateUpdatesRejectMismatchedTemplateType() {
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, new List<Account>{ new Account(Name = 'A') });
     try {
       domain.updateDifferent(new Contact(LastName = 'wrong'), null);
@@ -498,7 +498,7 @@ public class DomainTest {
 
   @IsTest
   static void testConfiguration() {
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
 
     System.assertEquals(
       false,
@@ -519,7 +519,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     // Test segment by field name
     Map<String, List<SObject>> segments = domain.segment('Industry');
@@ -545,7 +545,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     // Test collectRecords with a non-lookup field (should throw exception)
     try {
@@ -566,7 +566,7 @@ public class DomainTest {
       FROM Account
       LIMIT 1
     ];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     IModel source = domain.source();
     System.assert(source != null, 'Source should not be null');
@@ -584,7 +584,7 @@ public class DomainTest {
       new Account(Name = 'New Account 1'),
       new Account(Name = 'New Account 2')
     };
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, newAccounts);
 
     Map<Id, SObject> recordMap = domain.toMap();
@@ -602,7 +602,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     try {
@@ -623,7 +623,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     try {
@@ -650,7 +650,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     try {
@@ -669,7 +669,7 @@ public class DomainTest {
 
   @IsTest
   static void testInitWithNullRecords() {
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, null);
     System.assertEquals(
       0,
@@ -681,7 +681,7 @@ public class DomainTest {
 
   @IsTest
   static void testInitWithEmptyRecords() {
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, new List<SObject>());
     System.assertEquals(
       0,
@@ -696,7 +696,7 @@ public class DomainTest {
     IModel accountModel = Application.s.model(Account.SObjectType);
     IModel contactModel = Application.s.model(Contact.SObjectType);
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(accountModel, accounts);
 
     // Same model: idempotent, should not throw
@@ -738,7 +738,7 @@ public class DomainTest {
   @IsTest
   static void testRecordsReturnsClone() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     List<SObject> records1 = domain.records();
     List<SObject> records2 = domain.records();
@@ -752,7 +752,7 @@ public class DomainTest {
   @IsTest
   static void testToMapReturnsClone() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     Map<Id, SObject> map1 = domain.toMap();
     Map<Id, SObject> map2 = domain.toMap();
@@ -773,7 +773,7 @@ public class DomainTest {
     }
     update accounts;
 
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
     Map<String, List<SObject>> segments = domain.segment('Description');
 
     System.assert(segments.containsKey('null'), 'Should handle null values');
@@ -787,7 +787,7 @@ public class DomainTest {
   @IsTest
   static void testSegmentIdWithNonIdValues() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 3];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     // Test segmentId with a field that doesn't contain Id values
     Map<Id, List<SObject>> segments = domain.segmentId('Name');
@@ -801,7 +801,7 @@ public class DomainTest {
   @IsTest
   static void testAggregationWithNumericValues() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 3];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     // Test aggregation with different aggregate functions
     Object countResult = domain.aggregate(Application.s.count('Name'));
@@ -817,7 +817,7 @@ public class DomainTest {
   @IsTest
   static void testCatalogMemoryCaching() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 3];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     // First call should populate cache
     Map<String, List<SObject>> result1 = domain.catalog('Industry');
@@ -842,7 +842,7 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     // First call should populate cache
     Map<Id, List<SObject>> result1 = domain.catalogId('OwnerId');
@@ -863,7 +863,7 @@ public class DomainTest {
   @IsTest
   static void testForgetWithNonExistentField() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     // Should not throw exception for non-existent field
     domain.forget('NonExistentField');
@@ -872,7 +872,7 @@ public class DomainTest {
   @IsTest
   static void testCollectRecordsWithNullPath() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     try {
       domain.collectRecords('NonExistentField');
@@ -891,7 +891,7 @@ public class DomainTest {
   @IsTest
   static void testAggregateWithNullPath() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     try {
       domain.aggregate(Application.s.count('NonExistentField'));
@@ -910,7 +910,7 @@ public class DomainTest {
   @IsTest
   static void testSegmentWithNullPath() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     try {
       domain.segment('NonExistentField');
@@ -929,7 +929,7 @@ public class DomainTest {
   @IsTest
   static void testSegmentIdWithNullPath() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     try {
       domain.segmentId('NonExistentField');
@@ -948,7 +948,7 @@ public class DomainTest {
   @IsTest
   static void testCatalogWithNullPath() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     try {
       domain.catalog('NonExistentField');
@@ -967,7 +967,7 @@ public class DomainTest {
   @IsTest
   static void testCatalogIdWithNullPath() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     try {
       domain.catalogId('NonExistentField');
@@ -986,7 +986,7 @@ public class DomainTest {
   @IsTest
   static void testGetChangedRecordsWithChangedValues() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     // Create existing records with different values
     Account existingAccount = accounts[0].clone(true, true, true, true);
@@ -1009,7 +1009,7 @@ public class DomainTest {
   @IsTest
   static void testGetChangedRecordsWithNewRecords() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 1];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     // Create existing records map without the current record
     Map<Id, SObject> existingRecords = new Map<Id, SObject>();
@@ -1027,7 +1027,7 @@ public class DomainTest {
 
   @IsTest
   static void testIsInitialized() {
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     System.assert(
       !domain.isInitialized(),
       'Should not be initialized initially'
@@ -1041,7 +1041,7 @@ public class DomainTest {
   @IsTest
   static void testConstructorWithRecords() {
     List<Account> accounts = [SELECT Id, Name, Industry FROM Account LIMIT 2];
-    Domain domain = new Domain(null, accounts);
+    DomainRecords domain = new DomainRecords(null, accounts);
 
     System.assertEquals(2, domain.records().size(), 'Should have 2 records');
     System.assert(domain.isInitialized(), 'Should be initialized');
@@ -1055,14 +1055,14 @@ public class DomainTest {
       FROM Account
       LIMIT 3
     ];
-    Domain domain = new Domain();
+    DomainRecords domain = new DomainRecords();
     domain.init(null, accounts);
 
     // Test size method with records
     System.assertEquals(3, domain.size(), 'Size should be 3');
 
     // Test size method with empty records
-    Domain emptyDomain = new Domain();
+    DomainRecords emptyDomain = new DomainRecords();
     emptyDomain.init(null, new List<SObject>());
     System.assertEquals(
       0,
@@ -1071,7 +1071,7 @@ public class DomainTest {
     );
 
     // Test size method with null records (should return 0)
-    Domain nullDomain = new Domain();
+    DomainRecords nullDomain = new DomainRecords();
     nullDomain.init(null, null);
     System.assertEquals(
       0,
@@ -1411,7 +1411,7 @@ public class DomainTest {
   }
 
   // Test domain with security enforcement enabled
-  public class SecuredTestDomain extends Domain {
+  public class SecuredTestDomain extends DomainRecords {
     public override Boolean shouldEnforceSecurity() {
       return true;
     }
@@ -1427,7 +1427,7 @@ public class DomainTest {
       'Secured domain should enforce security'
     );
 
-    Domain normalDomain = new Domain();
+    DomainRecords normalDomain = new DomainRecords();
     System.assertEquals(
       false,
       normalDomain.shouldEnforceSecurity(),
@@ -1436,7 +1436,7 @@ public class DomainTest {
   }
 
   // Test domain with instance recycling enabled
-  public class RecyclableDomain extends Domain {
+  public class RecyclableDomain extends DomainRecords {
     public override Boolean shouldRecycleInstance() {
       return true;
     }
@@ -1452,7 +1452,7 @@ public class DomainTest {
       'Recyclable domain should enable instance recycling'
     );
 
-    Domain normalDomain = new Domain();
+    DomainRecords normalDomain = new DomainRecords();
     System.assertEquals(
       false,
       normalDomain.shouldRecycleInstance(),
