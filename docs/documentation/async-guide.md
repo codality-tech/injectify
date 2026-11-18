@@ -50,11 +50,13 @@ public class StampAccounts implements inj.IQueueableHandler {
   }
 
   public void queueableExecute() {
-    List<Account> rows = [SELECT Id FROM Account WHERE Id IN :accountIds];
+    inj.IQuery chosen = App.s.model(Account.SObjectType).query();
+    chosen.filters().add(App.s.condId(accountIds));
+    List<Account> rows = (List<Account>) chosen.run();
     for (Account row : rows) {
       row.Description = 'Stamped ' + System.now();
     }
-    update rows;
+    App.s.work().track(rows).apply();
   }
 }
 
@@ -86,7 +88,7 @@ public class ArchiveInactive implements inj.IBatchQueryableHandler {
     for (Account row : (List<Account>) scope) {
       row.Status__c = 'Archived';
     }
-    update scope;
+    App.s.work().track(scope).apply();
   }
 
   public void batchFinish() {
@@ -257,7 +259,7 @@ public class CountAccounts implements inj.IQueueableHandler, inj.IJobAware {
   }
 
   public void queueableExecute() {
-    job.setShared('accountCount', [SELECT COUNT() FROM Account]);
+    job.setShared('accountCount', App.s.model(Account.SObjectType).query().count());
   }
 }
 

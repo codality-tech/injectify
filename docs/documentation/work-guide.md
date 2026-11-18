@@ -29,7 +29,7 @@ inj.IWork work = App.s.work();
 
 ```apex
 Account fresh = new Account(Name = 'Acme');
-Account known = [SELECT Id FROM Account WHERE Name = 'Globex' LIMIT 1];
+Account known = (Account) App.s.model(Account.SObjectType).query(new List<inj.ICondition>{ App.s.eq(Account.Name, 'Globex') }).fetch();
 known.Rating = 'Hot';
 
 App.s.work().track(fresh).track(known).apply();

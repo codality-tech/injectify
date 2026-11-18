@@ -46,6 +46,33 @@ public class App {
 Look for an existing `App` before writing one. `App.s` gives the factories (`qf()`, `df()`, `sf()`,
 `tf()`), the condition builders, `model(...)` and `work()`.
 
+## Everything goes through the framework
+
+In an org that uses Injectify, code that is not a test reads and writes records through `App.s`:
+
+- **Every query is an `inj.IQuery`** (`App.s.qf().make(...)` or `App.s.model(...).query()`), an
+  aggregate query or a search. No `[SELECT ...]` and no `Database.query`.
+- **Every save is a unit of work** (`App.s.work()`). No `insert`, `update`, `delete`, `upsert` and no
+  `Database.insert`.
+
+The reason is not style. A query written inline never reaches the application's scheme, so its
+sharing and user-mode settings do not apply to it, `MockScheme` cannot answer it in a test, and its
+conditions cannot be reused to test records in memory. DML written inline skips the work's ordering,
+its partial-success reporting and its user mode.
+
+Inline SOQL and DML are right in three places only:
+
+1. **Tests**, to set records up and to check what the code saved. A test that asserts with the
+   framework's own query is checking the framework with itself.
+2. **A scheme class** (`inj.IScheme`): that is where the framework's queries are executed.
+3. **A query the framework cannot express.** Today that is a semi-join
+   (`WHERE Id IN (SELECT ...)`). Write it inline with a comment that says why.
+
+Fields and conditions reach through lookups without falling back to SOQL text:
+`q.fields().add(Contact.AccountId, new Set<SObjectField>{ Account.Name })` selects `Account.Name`,
+and `App.s.eq(new List<SObjectField>{ Contact.AccountId, Account.Industry }, 'Energy')` filters on
+it. Setup objects (`Group`, `User`) and share objects (`AccountShare`) are queried the same way.
+
 ## Rules that do not bend
 
 1. **Registry keys are types.** `Account.class => Accounts.class`. `Account.SObjectType` as a key
@@ -166,6 +193,8 @@ started in a way the platform allows.
 
 ## Before finishing
 
+- Is there a `[SELECT`, a `Database.query` or a bare `insert`/`update`/`delete` outside a test or a
+  scheme class? Replace it, or leave a comment saying what the framework could not express.
 - Does every registry key use `.class`?
 - Is every query and domain class `global`, with `public` or `global` overrides?
 - Is anything in the package named without `inj.`, or named that is not in `package_api.apex`?
