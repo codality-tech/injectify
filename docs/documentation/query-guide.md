@@ -338,7 +338,7 @@ The child's conditions are bound along with the parent's. `getSubqueryMap()` ret
 
 ### Security
 
-Queries run in **system mode** by default, as Apex does.
+Queries run in **system mode** by default: the framework asks for it on every query, whatever the API version of your class.
 
 - `withSharing(true)` runs the query in **user mode**: sharing rules, object permissions and field-level security all apply. Despite its name it is the whole of user mode, not sharing alone. A user with no access to the object gets a `QueryException`.
   - A field you add yourself that the user can't read makes the query fail with a `QueryException`.
@@ -347,11 +347,19 @@ Queries run in **system mode** by default, as Apex does.
 - In system mode, **sharing follows the class that builds the query**, as it does for a query written in that class: built in a class declared `without sharing` it reads every record, and built in one declared `with sharing` it reads the records the running user can see.
   - The application's scheme is the class that runs every query. A scheme with a sharing keyword of its own overrides the builder's: through a scheme declared `without sharing`, a query reads every record even when a `with sharing` class built it. The scheme the package uses when you give none inherits, so it never overrides.
   - User mode applies sharing whatever the scheme and whoever built the query.
-- `withSecurity(true)` adds `WITH SECURITY_ENFORCED`, which the framework places where SOQL requires it:
+- `withSecurity(true)` checks **read permissions only, and leaves sharing as it is**. Before the query runs, the framework checks that the running user may read the object and every field the `SELECT` names: its own fields, fields reached through lookups, the lookup fields themselves, and the fields of subqueries. In an aggregate query it checks the fields aggregated and grouped by. If any is not readable the query is not run, and a `QueryException` names what was refused:
 
 ```apex
-// SELECT Id FROM Account WITH SECURITY_ENFORCED ORDER BY Name DESC NULLS LAST LIMIT 10 OFFSET 5
+IQuery q = App.s.model(Account.SObjectType).query().withSecurity(true);
+q.fields().add(new Set<SObjectField>{ Account.Name, Account.Rating });
+q.run();
+// System.QueryException: Insufficient permissions: the running user cannot read Account.Rating
 ```
+
+  - It does not check the fields in `WHERE` or `ORDER BY`; user mode does.
+  - `count()` checks the object alone, since it names no field.
+  - A search (`ISearchQuery`) does not apply it; use `withSharing(true)` on its queries.
+  - It writes nothing into the SOQL. Up to API version 66 it added `WITH SECURITY_ENFORCED`; the platform no longer accepts that clause, so the framework makes the same check itself.
 
 ### Locking rows
 

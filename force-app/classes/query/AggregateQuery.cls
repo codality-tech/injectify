@@ -128,6 +128,10 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
     return this;
   }
 
+  /**
+   * Refuses the query, with a QueryException, unless the running user may read the object and
+   * every field it aggregates or groups by. Sharing is left as it is.
+   */
   public IAggregateQuery withSecurity(Boolean enforce) {
     securityEnforced = enforce == true;
     return this;
@@ -148,7 +152,46 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
     return new Statement(this, binding).text();
   }
 
+  /** Whether withSecurity(true) was asked for. */
+  public Boolean isSecurityEnforced() {
+    return securityEnforced;
+  }
+
+  // With withSecurity(true): throws unless the running user may read what the query names.
+  private void requireReadAccess() {
+    if (!securityEnforced) {
+      return;
+    }
+    List<String> refused = new List<String>();
+    if (!source.describe().isAccessible()) {
+      refused.add(source.name());
+    } else {
+      Set<SObjectField> named = new Set<SObjectField>();
+      for (IAggregateFunction function : functions) {
+        Object over = function.field();
+        if (over instanceof SObjectField) {
+          named.add((SObjectField) over);
+        } else if (over instanceof IPath) {
+          named.addAll(((IPath) over).fieldSequence());
+        }
+      }
+      for (IPath groupedBy : grouped) {
+        named.addAll(groupedBy.fieldSequence());
+      }
+      for (SObjectField field : named) {
+        DescribeFieldResult shape = source.scheme().getFieldDescribe(field);
+        if (!shape.isAccessible()) {
+          refused.add(String.valueOf(field.getDescribe().getSObjectType()) + '.' + shape.getName());
+        }
+      }
+    }
+    if (!refused.isEmpty()) {
+      throw new QueryException('Insufficient permissions: the running user cannot read ' + String.join(refused, ', '));
+    }
+  }
+
   public virtual List<AggregateResult> run() {
+    requireReadAccess();
     Statement statement = new Statement(this, true);
     String soql = statement.text();
     AccessLevel mode = userMode ? AccessLevel.USER_MODE : AccessLevel.SYSTEM_MODE;
@@ -169,13 +212,12 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
       this.binding = binding == true;
     }
 
-    // Keyword and value pairs in SOQL order (WITH right after WHERE); blank values are left out.
+    // Keyword and value pairs in SOQL order; blank values are left out.
     private String text() {
       List<String> pairs = new List<String>{
         'SELECT', selectList(),
         'FROM', target.source.name(),
         'WHERE', conditionText(target.whereRoot),
-        'WITH', target.securityEnforced ? 'SECURITY_ENFORCED' : null,
         'GROUP BY', groupClause(),
         'HAVING', conditionText(target.havingRoot),
         'ORDER BY', orderList(),

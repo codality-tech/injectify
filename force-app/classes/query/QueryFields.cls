@@ -87,6 +87,24 @@ public without sharing class QueryFields implements IQueryFields {
     return routes;
   }
 
+  /** Every field the SELECT names: the fields chosen, and the lookup fields they are reached through. */
+  public Set<SObjectField> everyFieldNamed() {
+    Set<SObjectField> named = new Set<SObjectField>();
+    Map<IReference, ModelFields> chosen = pathFields().selections;
+    for (IReference via : chosen.keySet()) {
+      named.addAll(via.fieldSequence());
+      named.addAll(chosen.get(via).getFields());
+    }
+    Map<IPath, Map<IModel, ModelFields>> branches = typeofFields().byPath;
+    for (IPath lookupPath : branches.keySet()) {
+      named.addAll(lookupPath.fieldSequence());
+      for (ModelFields ofTarget : branches.get(lookupPath).values()) {
+        named.addAll(ofTarget.getFields());
+      }
+    }
+    return named;
+  }
+
   public Map<IReference, Set<SObjectField>> getFieldsByReference() {
     return pathFields().fieldsByReference();
   }

@@ -138,8 +138,8 @@ private class QueryTest {
       .withSecurity(true);
     String soql = q.toSoql();
     System.assert(
-      soql.contains('WITH SECURITY_ENFORCED'),
-      'SOQL should contain WITH SECURITY_ENFORCED clause'
+      ((Query) q).isSecurityEnforced() && !soql.contains('SECURITY_ENFORCED'),
+      'the query remembers withSecurity(true) and no longer writes the retired clause'
     );
     System.assert(
       soql.contains('Type') && soql.contains('Customer'),
@@ -171,8 +171,8 @@ private class QueryTest {
 
     String soql = q.toSoql();
     System.assert(
-      soql.contains('WITH SECURITY_ENFORCED'),
-      'SOQL should contain WITH SECURITY_ENFORCED clause'
+      ((Query) q).isSecurityEnforced() && !soql.contains('SECURITY_ENFORCED'),
+      'the query remembers withSecurity(true) and no longer writes the retired clause'
     );
     System.assert(
       soql.contains('LIMIT 10'),
@@ -201,8 +201,8 @@ private class QueryTest {
       'Cloned q should generate identical SOQL'
     );
     System.assert(
-      clonedSoql.contains('WITH SECURITY_ENFORCED'),
-      'Cloned SOQL should contain WITH SECURITY_ENFORCED clause'
+      ((Query) cloned).isSecurityEnforced() && !clonedSoql.contains('SECURITY_ENFORCED'),
+      'the query remembers withSecurity(true) and no longer writes the retired clause'
     );
   }
 
@@ -222,8 +222,8 @@ private class QueryTest {
     q.withSecurity(true);
     String soql2 = q.toSoql();
     System.assert(
-      soql2.contains('WITH SECURITY_ENFORCED'),
-      'SOQL should contain WITH SECURITY_ENFORCED after enabling'
+      ((Query) q).isSecurityEnforced() && !soql2.contains('SECURITY_ENFORCED'),
+      'the query remembers withSecurity(true) and no longer writes the retired clause'
     );
 
     // Disable security
@@ -273,8 +273,8 @@ private class QueryTest {
       .withSecurity(true);
     String soql = q.toSoql();
     System.assert(
-      soql.contains('WITH SECURITY_ENFORCED'),
-      'SOQL should contain WITH SECURITY_ENFORCED when both sharing and security are enabled'
+      ((Query) q).isSecurityEnforced() && !soql.contains('SECURITY_ENFORCED'),
+      'the query remembers withSecurity(true) and no longer writes the retired clause'
     );
     System.assert(
       soql.contains('Type') && soql.contains('Customer'),

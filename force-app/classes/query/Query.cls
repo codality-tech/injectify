@@ -5,7 +5,8 @@
  * Values in conditions are passed as bind variables when the query runs, so they never become
  * part of the SOQL text. toSoql() writes them inline instead, for display or for trusted values.
  * Queries run in system mode unless withSharing(true) asks for user mode (sharing and field
- * security); withSecurity(true) adds WITH SECURITY_ENFORCED.
+ * security). withSecurity(true) keeps the mode and refuses the query unless the running user
+ * may read the object and every field its SELECT names.
  *
  *   IQuery customers = Application.s.qf().make(Account.SObjectType);
  *   customers.fields().add(new Set<SObjectField>{ Account.Name, Account.Industry });
@@ -198,7 +199,12 @@ public virtual inherited sharing class Query implements IQuery {
     return this;
   }
 
-  /** Adds WITH SECURITY_ENFORCED. */
+  /**
+   * Refuses the query, with a QueryException, unless the running user may read the object and
+   * every field named in the SELECT: its own fields, fields reached through lookups, and the
+   * fields of its subqueries. Sharing is left as it is; for sharing as well, use withSharing.
+   * (The platform retired WITH SECURITY_ENFORCED, which did this, at API version 67.)
+   */
   public virtual IQuery withSecurity(Boolean enforce) {
     securityEnforced = enforce == true;
     return this;
@@ -233,6 +239,7 @@ public virtual inherited sharing class Query implements IQuery {
   }
 
   public virtual List<SObject> run() {
+    requireReadAccess(true);
     Statement statement = new Statement(true);
     String soql = statement.complete(this, null);
     return source().scheme().queryWithBinds(soql, statement.binds, accessLevel());
@@ -240,6 +247,7 @@ public virtual inherited sharing class Query implements IQuery {
 
   /** At most `maxRows` rows, whatever the query's own limit. */
   public virtual List<SObject> fetch(Integer maxRows) {
+    requireReadAccess(true);
     Statement statement = new Statement(true);
     String soql = statement.complete(this, String.valueOf(maxRows));
     return source().scheme().queryWithBinds(soql, statement.binds, accessLevel());
@@ -252,12 +260,14 @@ public virtual inherited sharing class Query implements IQuery {
   }
 
   public virtual Integer count() {
+    requireReadAccess(false);
     Statement statement = new Statement(true);
     String soql = statement.counting(this);
     return source().scheme().countQueryWithBinds(soql, statement.binds, accessLevel());
   }
 
   public virtual Database.QueryLocator toLocator() {
+    requireReadAccess(true);
     Statement statement = new Statement(true);
     statement.lockable = false;
     String soql = statement.complete(this, null);
@@ -266,6 +276,49 @@ public virtual inherited sharing class Query implements IQuery {
 
   private AccessLevel accessLevel() {
     return userMode ? AccessLevel.USER_MODE : AccessLevel.SYSTEM_MODE;
+  }
+
+  /** Whether withSecurity(true) was asked for. */
+  public Boolean isSecurityEnforced() {
+    return securityEnforced;
+  }
+
+  // With withSecurity(true): throws unless the running user may read what the query names.
+  private void requireReadAccess(Boolean fieldsToo) {
+    if (!securityEnforced) {
+      return;
+    }
+    List<String> refused = new List<String>();
+    addUnreadable(refused, fieldsToo);
+    if (!refused.isEmpty()) {
+      throw new QueryException('Insufficient permissions: the running user cannot read ' + String.join(refused, ', '));
+    }
+  }
+
+  /** Adds the names of the object and fields this query reads that the running user may not. */
+  public void addUnreadable(List<String> refused, Boolean fieldsToo) {
+    IScheme scheme = source.scheme();
+    if (!source.describe().isAccessible()) {
+      refused.add(source.name());
+      return;
+    }
+    if (fieldsToo != true) {
+      return;
+    }
+    IQueryFields chosen = fields();
+    if (chosen instanceof QueryFields) {
+      for (SObjectField named : ((QueryFields) chosen).everyFieldNamed()) {
+        DescribeFieldResult shape = scheme.getFieldDescribe(named);
+        if (!shape.isAccessible()) {
+          refused.add(String.valueOf(named.getDescribe().getSObjectType()) + '.' + shape.getName());
+        }
+      }
+    }
+    for (IQuery child : subqueries.values()) {
+      if (child instanceof Query) {
+        ((Query) child).addUnreadable(refused, true);
+      }
+    }
   }
 
   /** Whether withSharing(true) was asked for. */
@@ -319,7 +372,6 @@ public virtual inherited sharing class Query implements IQuery {
           'SELECT', selectList(target),
           'FROM', fromName(target),
           'WHERE', whereClause(target),
-          'WITH', target.securityEnforced ? 'SECURITY_ENFORCED' : null,
           'ORDER BY', orderList(target),
           'LIMIT', rowCap ?? whenSet(target.rowLimit),
           'OFFSET', whenSet(target.rowOffset),
@@ -333,8 +385,7 @@ public virtual inherited sharing class Query implements IQuery {
         new List<String>{
           'SELECT', 'COUNT()',
           'FROM', fromName(target),
-          'WHERE', whereClause(target),
-          'WITH', target.securityEnforced ? 'SECURITY_ENFORCED' : null
+          'WHERE', whereClause(target)
         }
       );
     }

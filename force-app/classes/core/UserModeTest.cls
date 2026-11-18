@@ -219,4 +219,118 @@ private class UserModeTest {
 
     Assert.areEqual(1, [SELECT COUNT() FROM Account], 'Initech was not saved');
   }
+
+  // --- withSecurity: the user's read permissions, without sharing -------------------------------
+
+  // What running the query was refused with, or null when it ran.
+  private static String refusalOf(IQuery query) {
+    try {
+      query.run();
+    } catch (QueryException refused) {
+      return refused.getMessage();
+    }
+    return null;
+  }
+
+  @IsTest
+  static void withSecurityRunsWhenEveryFieldNamedCanBeRead() {
+    User reader = reader();
+    acmeOwnedBy(reader);
+
+    System.runAs(reader) {
+      IQuery secured = Application.s.model(Account.SObjectType).query().withSecurity(true);
+      secured.fields().add(new Set<SObjectField>{ Account.Name, Account.Industry });
+
+      Assert.isFalse(secured.toSoql().contains('SECURITY_ENFORCED'), 'the retired clause is not written: ' + secured.toSoql());
+      List<Account> rows = (List<Account>) secured.run();
+      Assert.areEqual(1, rows.size());
+      Assert.areEqual('Energy', rows[0].Industry);
+      Assert.areEqual(1, secured.count());
+      Assert.isNotNull(secured.fetch());
+    }
+  }
+
+  @IsTest
+  static void withSecurityRefusesAFieldTheUserCannotRead() {
+    User reader = reader();
+    acmeOwnedBy(reader);
+
+    System.runAs(reader) {
+      IQuery secured = Application.s.model(Account.SObjectType).query().withSecurity(true);
+      secured.fields().add(new Set<SObjectField>{ Account.Name, Account.Rating });
+
+      String why = refusalOf(secured);
+      Assert.isNotNull(why, 'Rating cannot be read by this user');
+      Assert.isTrue(why.contains('Account.Rating'), why);
+      Assert.isFalse(why.contains('Account.Name'), why);
+      Assert.areEqual(1, secured.count(), 'a count names no field');
+
+      // Switched off, the query is in system mode as before and reads the field.
+      secured.withSecurity(false);
+      Assert.areEqual('Hot', ((Account) secured.fetch()).Rating);
+    }
+  }
+
+  @IsTest
+  static void withSecurityCoversLookupsAndSubqueries() {
+    User reader = reader();
+
+    System.runAs(reader) {
+      IQuery throughLookup = Application.s.model(Account.SObjectType).query().withSecurity(true);
+      throughLookup.fields().add('Parent', new Set<SObjectField>{ Account.Rating });
+      String why = refusalOf(throughLookup);
+      Assert.isNotNull(why, 'Rating through the Parent lookup');
+      Assert.isTrue(why.contains('Account.Rating'), why);
+
+      IQuery contacts = Application.s.model(Contact.SObjectType).query();
+      contacts.fields().add(new Set<SObjectField>{ Contact.LastName });
+      IQuery withContacts = Application.s.model(Account.SObjectType).query().addSubquery('Contacts', contacts).withSecurity(true);
+      why = refusalOf(withContacts);
+      Assert.isNotNull(why, 'this user has no access to contacts');
+      Assert.isTrue(why.contains('Contact'), why);
+    }
+  }
+
+  @IsTest
+  static void withSecurityRefusesAnObjectTheUserCannotRead() {
+    User reader = reader();
+
+    System.runAs(reader) {
+      IQuery secured = Application.s.model(Opportunity.SObjectType).query().withSecurity(true);
+
+      String why = refusalOf(secured);
+      Assert.isNotNull(why, 'this user has no access to opportunities');
+      Assert.isTrue(why.contains('Opportunity'), why);
+      try {
+        secured.count();
+        Assert.fail('a count needs the object too');
+      } catch (QueryException refused) {
+        Assert.isTrue(refused.getMessage().contains('Opportunity'), refused.getMessage());
+      }
+    }
+  }
+
+  @IsTest
+  static void anAggregateWithSecurityIsHeldToTheFieldsItNames() {
+    User reader = reader();
+    acmeOwnedBy(reader);
+
+    System.runAs(reader) {
+      IAggregateQuery byIndustry = Application.s.model(Account.SObjectType).aggregateQuery().withSecurity(true);
+      byIndustry.aggregates().add(Application.s.count(Account.Id));
+      byIndustry.groupBys().add(Application.s.path(Account.Industry));
+      Assert.isFalse(byIndustry.toSoql().contains('SECURITY_ENFORCED'), byIndustry.toSoql());
+      Assert.areEqual(1, byIndustry.run().size());
+
+      IAggregateQuery byRating = Application.s.model(Account.SObjectType).aggregateQuery().withSecurity(true);
+      byRating.aggregates().add(Application.s.count(Account.Id));
+      byRating.groupBys().add(Application.s.path(Account.Rating));
+      try {
+        byRating.run();
+        Assert.fail('Rating cannot be read by this user');
+      } catch (QueryException refused) {
+        Assert.isTrue(refused.getMessage().contains('Account.Rating'), refused.getMessage());
+      }
+    }
+  }
 }

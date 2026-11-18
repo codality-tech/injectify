@@ -231,8 +231,8 @@ private class AggregateQueryTest {
 
     String soql = q.toSoql();
     System.assert(
-      soql.contains('WITH SECURITY_ENFORCED'),
-      'Should contain security enforcement'
+      ((AggregateQuery) q).isSecurityEnforced() && !soql.contains('SECURITY_ENFORCED'),
+      'the query remembers withSecurity(true) and no longer writes the retired clause'
     );
   }
 

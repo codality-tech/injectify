@@ -24,8 +24,8 @@ private class QueryFragmentRegistryTest {
     System.assert(soql.contains('FROM Account'), 'Should include Account');
     System.assert(soql.contains('LIMIT 2'), 'Should include limit');
     System.assert(
-      soql.contains('SECURITY_ENFORCED'),
-      'Should enforce security'
+      ((Query) q).isSecurityEnforced() && !soql.contains('SECURITY_ENFORCED'),
+      'the query remembers withSecurity(true) and no longer writes the retired clause'
     );
   }
 }

@@ -111,7 +111,7 @@ Foundation providing:
 - **QueryFactory** creates Query instances; a query class is registered against the object's type (`Account.class => AccountQuery.class`)
 - **Query** provides fluent API for SOQL building (fields, filters, orderings, limits)
 - **Default fields** from the registered query class, or else every field except long text areas, formulas, namespaced fields, view dates, preference/permission flags and fields no user can be granted (`QueryFactory.defaultFieldScope`)
-- **Security:** system mode by default, with the sharing of the class that builds the query (the query classes declare `inherited sharing`) unless the scheme has a sharing keyword of its own; `withSharing(true)` runs the query in user mode (sharing, object and field permissions), leaving out default fields the user cannot read; `withSecurity(true)` adds `WITH SECURITY_ENFORCED`
+- **Security:** system mode by default, with the sharing of the class that builds the query (the query classes declare `inherited sharing`) unless the scheme has a sharing keyword of its own; `withSharing(true)` runs the query in user mode (sharing, object and field permissions), leaving out default fields the user cannot read; `withSecurity(true)` keeps the mode and refuses the query (`QueryException`) unless the running user may read the object and every field the SELECT names
 - **Locking:** `forUpdate(true)` adds `FOR UPDATE` to `run()` and `fetch()`
 
 ```apex
