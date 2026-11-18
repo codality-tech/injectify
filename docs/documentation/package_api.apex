@@ -445,31 +445,6 @@ class Async {
   static ISchedulable schedulable(ISchedulableHandler handler);
 }
 
-abstract class BaseDomain implements IDomain, ITriggered, ITriggeredConfigured {
-  BaseDomain();
-  BaseDomain(IModel source, List<SObject> records);
-  void init(IModel source, List<SObject> records);
-  virtual void onInitialized(IModel source, List<SObject> records);
-  virtual void onBeforeUpsert(Map<Id, SObject> oldMap);
-  virtual void onAfterUpsert(Map<Id, SObject> oldMap);
-  virtual void onBeforeDelete();
-  virtual void onAfterDelete();
-  virtual void onAfterUndelete();
-  IDomain base();
-  virtual Boolean shouldRecycleInstance();
-  virtual Boolean shouldEnforceSecurity();
-}
-
-abstract inherited sharing class BaseQuery implements IQuery {
-  BaseQuery();
-  BaseQuery(IModel model);
-  BaseQuery(BaseQuery other);
-  void init(IModel source);
-  virtual void onInitialized(IModel source);
-  virtual Set<SObjectField> getDefaultFields();
-  IQuery base();
-}
-
 class CharUtil {
   static final ICharset binary;
   static final ICharset numeric;
@@ -523,6 +498,42 @@ class DebugUtil {
     IPrinter dec();
     void print();
   }
+}
+
+virtual class DomainRecords implements IDomain, ITriggered, ITriggeredConfigured {
+  virtual void init(IModel source, List<SObject> records);
+  IModel source();
+  List<SObject> records();
+  Integer size();
+  Map<Id, SObject> toMap();
+  List<SObject> getChangedRecords(Map<Id, SObject> previous, Set<String> fieldNames);
+  List<SObject> getChangedRecords(Map<Id, SObject> previous, Set<SObjectField> fields);
+  List<SObject> filter(ICondition condition);
+  List<SObject> sort(IOrdering ordering);
+  Map<String, List<SObject>> segment(Object path);
+  Map<Id, List<SObject>> segmentId(Object path);
+  Map<String, List<SObject>> catalog(Object path);
+  Map<Id, List<SObject>> catalogId(Object path);
+  void forget(Object path);
+  Map<Id, SObject> collectRecords(Object path);
+  Object aggregate(IAggregateFunction function);
+  void updateDifferent(SObject template, IWork work);
+  void updateBlank(SObject template, IWork work);
+}
+
+abstract class BaseDomain extends DomainRecords implements IDomain, ITriggered, ITriggeredConfigured {
+  BaseDomain();
+  BaseDomain(IModel source, List<SObject> records);
+  void init(IModel source, List<SObject> records);
+  virtual void onInitialized(IModel source, List<SObject> records);
+  virtual void onBeforeUpsert(Map<Id, SObject> oldMap);
+  virtual void onAfterUpsert(Map<Id, SObject> oldMap);
+  virtual void onBeforeDelete();
+  virtual void onAfterDelete();
+  virtual void onAfterUndelete();
+  IDomain base();
+  virtual Boolean shouldRecycleInstance();
+  virtual Boolean shouldEnforceSecurity();
 }
 
 class Enums {
@@ -665,6 +676,43 @@ inherited sharing class Persistent {
     void removeAll(Set<String> names);
     String prefix();
   }
+}
+
+virtual inherited sharing class Query implements IQuery {
+  virtual IQuery deepClone();
+  virtual IModel source();
+  virtual IQueryFields fields();
+  virtual Query addAllFields();
+  virtual Query addAllFields(Object route);
+  virtual IQuery addImplicitFields();
+  virtual IQuery addSubquery(SObjectField relationshipField, IQuery child);
+  virtual IQuery addSubquery(String relationshipName, IQuery child);
+  virtual Map<String, IQuery> getSubqueryMap();
+  virtual ILogicalCondition filters();
+  virtual IQuery addCondition(ICondition condition);
+  virtual List<IOrdering> orderings();
+  virtual IQuery setLimit(Integer maxRows);
+  virtual IQuery setOffset(Integer skipRows);
+  virtual IQuery withSecurity(Boolean enforce);
+  virtual IQuery withSharing(Boolean enforce);
+  virtual IQuery forUpdate(Boolean lock);
+  virtual String toSoql();
+  virtual String toSoql(Boolean binding);
+  virtual List<SObject> run();
+  virtual List<SObject> fetch(Integer maxRows);
+  virtual SObject fetch();
+  virtual Integer count();
+  virtual Database.QueryLocator toLocator();
+}
+
+abstract inherited sharing class BaseQuery extends Query implements IQuery {
+  BaseQuery();
+  BaseQuery(IModel model);
+  BaseQuery(BaseQuery other);
+  void init(IModel source);
+  virtual void onInitialized(IModel source);
+  virtual Set<SObjectField> getDefaultFields();
+  IQuery base();
 }
 
 class RandomUtil {

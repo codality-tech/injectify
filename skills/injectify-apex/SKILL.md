@@ -53,9 +53,9 @@ Look for an existing `App` before writing one. `App.s` gives the factories (`qf(
 2. **Query and domain classes are `global`**, with a `global` no-argument constructor (or no
    constructor). Services and handlers that only implement `inj.ITriggered` may be `public`. Overrides of framework hooks are `public` or `global`. `protected override` does
    not compile across the namespace.
-3. **Inherited methods go through `base()`** inside a query or domain class: `base().records()`,
-   `base().fields()`, `base().addCondition(...)`.
-4. **Only `global` types can be named.** `inj.Query`, `inj.Domain`, `inj.Work` are not visible;
+3. **Inherited methods are called directly** inside a query or domain class: `records()`,
+   `fields()`, `addCondition(...)`. (`base()`, needed before 0.3.0-2, still works.)
+4. **Only `global` types can be named.** `inj.Work`, `inj.QueryFactory`, `inj.Filtering` are not visible;
    use `inj.IQuery`, `inj.IDomain`, `inj.IWork`.
 5. **Catch `Exception`** for framework errors. Only `inj.Application.FactoryException` and the
    utility classes' exceptions are global.
@@ -92,7 +92,7 @@ global class Accounts extends inj.BaseDomain {
   }
 
   public override void onBeforeUpsert(Map<Id, SObject> oldMap) {
-    for (Account row : (List<Account>) base().records()) {
+    for (Account row : (List<Account>) records()) {
       // oldMap is null on insert
     }
   }
@@ -106,7 +106,7 @@ trigger AccountTrigger on Account(before insert, before update, after insert, af
 ```
 
 Hooks: `onBeforeUpsert(oldMap)`, `onAfterUpsert(oldMap)`, `onBeforeDelete()`, `onAfterDelete()`,
-`onAfterUndelete()`. Insert and update share a hook. `base().getChangedRecords(oldMap, fields)`
+`onAfterUndelete()`. Insert and update share a hook. `getChangedRecords(oldMap, fields)`
 returns the records where one of the fields changed (every record on insert).
 
 Switch triggers off with `App.s.tf().disable(...)` and back on with the matching `enable(...)`;

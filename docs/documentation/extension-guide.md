@@ -68,12 +68,12 @@ global class AccountQuery extends inj.BaseQuery {
   }
 
   public AccountQuery inIndustry(String industry) {
-    base().addCondition(App.s.eq(Account.Industry, industry));
+    addCondition(App.s.eq(Account.Industry, industry));
     return this;
   }
 
   public AccountQuery overRevenue(Decimal floor) {
-    base().addCondition(App.s.gt(Account.AnnualRevenue, floor));
+    addCondition(App.s.gt(Account.AnnualRevenue, floor));
     return this;
   }
 }
@@ -83,11 +83,11 @@ Once the class is registered, the query factory returns it for the object:
 
 ```apex
 AccountQuery big = ((AccountQuery) App.s.qf().make(Account.SObjectType)).inIndustry('Energy').overRevenue(1000000);
-List<Account> rows = (List<Account>) big.base().run();
+List<Account> rows = (List<Account>) big.run();
 // SELECT Id, Name, Industry, AnnualRevenue FROM Account WHERE (Industry = :a0 AND AnnualRevenue > :a1)
 ```
 
-`base()` returns the query as a `inj.IQuery`. Everything a query can do is called through it; see [Working across the namespace](#working-across-the-namespace).
+Everything a query can do is called directly on your class, inside it and by code that holds one; see [Working across the namespace](#working-across-the-namespace).
 
 ### Default fields
 
@@ -107,8 +107,8 @@ global class OpenCaseQuery extends inj.BaseQuery {
   }
 
   global override void onInitialized(inj.IModel source) {
-    base().addCondition(App.s.eq(Case.IsClosed, false));
-    base().orderings().add(App.s.ordering(Case.CreatedDate, false, true));
+    addCondition(App.s.eq(Case.IsClosed, false));
+    orderings().add(App.s.ordering(Case.CreatedDate, false, true));
   }
 }
 
@@ -150,7 +150,7 @@ global class Opportunities extends inj.BaseDomain {
   }
 
   public List<Opportunity> items() {
-    return (List<Opportunity>) base().records();
+    return (List<Opportunity>) records();
   }
 
   public override void onBeforeUpsert(Map<Id, SObject> oldMap) {
@@ -164,7 +164,7 @@ global class Opportunities extends inj.BaseDomain {
   public override void onAfterUpsert(Map<Id, SObject> oldMap) {
     Set<SObjectField> stage = new Set<SObjectField>{ Opportunity.StageName };
     inj.IWork work = App.s.work();
-    for (Opportunity row : (List<Opportunity>) base().getChangedRecords(oldMap, stage)) {
+    for (Opportunity row : (List<Opportunity>) getChangedRecords(oldMap, stage)) {
       if (row.StageName == 'Closed Won') {
         work.track(new Task(WhatId = row.Id, Subject = 'Send the welcome pack'));
       }
@@ -194,7 +194,7 @@ In the delete hooks the records are the ones being deleted (`Trigger.old`); ever
 
 ### Working with the records
 
-All of these are called through `base()`, which returns the domain as a `inj.IDomain`.
+All of these are called directly on your domain class.
 
 | Method | Returns |
 | --- | --- |
@@ -222,9 +222,9 @@ Two things to know about `getChangedRecords`:
 
 ```apex
 // In a domain method
-List<SObject> large = base().filter(App.s.gt(Opportunity.Amount, 100000));
-Map<Id, List<SObject>> byAccount = base().catalogId(Opportunity.AccountId);
-Decimal total = (Decimal) base().aggregate(App.s.sum(Opportunity.Amount));
+List<SObject> large = filter(App.s.gt(Opportunity.Amount, 100000));
+Map<Id, List<SObject>> byAccount = catalogId(Opportunity.AccountId);
+Decimal total = (Decimal) aggregate(App.s.sum(Opportunity.Amount));
 ```
 
 ### One instance for before and after
@@ -360,18 +360,18 @@ invoicing.invoice(wonIds);
 
 ## Working across the namespace
 
-The package's own classes (`Query`, `DomainRecords`, the factories) are not visible outside its namespace. A subscriber sees the global interfaces (`inj.IQuery`, `inj.IDomain`, `inj.IWork`...), the two base classes, and the static entry points (`inj.Application`, `inj.Async`, `inj.FieldScope`, `inj.MockScheme`). The full list is in [package_api.apex](package_api.apex).
+Most of the package's own classes (the factories, the unit of work, the async jobs) are not visible outside its namespace. A subscriber sees the global interfaces (`inj.IQuery`, `inj.IDomain`, `inj.IWork`...), the two base classes with the classes they extend, and the static entry points (`inj.Application`, `inj.Async`, `inj.FieldScope`, `inj.MockScheme`). The full list is in [package_api.apex](package_api.apex).
 
 Three rules follow from that:
 
-**Call inherited methods through `base()`.** Your class extends `BaseQuery` or `BaseDomain`, but the methods it inherits from `Query` and `DomainRecords` are not global, so they cannot be called directly, even on `this`:
+**Inherited methods are called directly.** Your class extends `BaseQuery` or `BaseDomain`, and every method of `inj.IQuery` and `inj.IDomain` is global on the classes those extend. So they can be called on `this`, and on a variable of your own type:
 
 ```apex
-setLimit(100); // does not compile in a subscriber org
-base().setLimit(100); // works: base() is this object as a inj.IQuery
+setLimit(100);      // inside AccountQuery
+accountQuery.run(); // code holding an AccountQuery
 ```
 
-The same goes for callers holding your type: `accountQuery.base().run()`, not `accountQuery.run()`. A variable typed as `inj.IQuery` or `inj.IDomain` needs no `base()`.
+Up to version 0.3.0-1 these calls did not compile outside the package, and went through `base()`, which returns the object as an `inj.IQuery` or `inj.IDomain`. `base()` is still there, so code written that way needs no change.
 
 **Query and domain classes are `global`.** They extend a class of the package, so they are declared `global`, with a `global` no-argument constructor or no constructor at all. A service, or a trigger handler that only implements `inj.ITriggered`, extends nothing from the package and can be `public`. The methods they override (`getDefaultFields`, `onInitialized`, the trigger hooks, `shouldRecycleInstance`, `shouldEnforceSecurity`) are global in the base class; declare the overrides `public` or `global`.
 

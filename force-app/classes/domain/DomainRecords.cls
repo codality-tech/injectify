@@ -1,4 +1,4 @@
-public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredConfigured {
+global virtual class DomainRecords implements IDomain, ITriggered, ITriggeredConfigured {
   private IModel source;
   private List<SObject> records;
   // catalog() and catalogId() results, remembered per path until the records change.
@@ -22,7 +22,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   // IDomain interface implementation
-  public virtual void init(IModel source, List<SObject> records) {
+  global virtual void init(IModel source, List<SObject> records) {
     if (isInitialized()) {
       // If source is null, use existing source (handleTrigger passes null)
       if (source == null) {
@@ -223,7 +223,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
     return false;
   }
 
-  public IModel source() {
+  global IModel source() {
     return source;
   }
 
@@ -240,16 +240,16 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   /** A copy of the records. */
-  public List<SObject> records() {
+  global List<SObject> records() {
     return records?.clone();
   }
 
-  public Integer size() {
+  global Integer size() {
     return records == null ? 0 : records.size();
   }
 
   /** The records by Id (a copy); empty when they have no Ids yet. */
-  public Map<Id, SObject> toMap() {
+  global Map<Id, SObject> toMap() {
     if (toMap == null) {
       Boolean allSaved = true;
       for (SObject record : records) {
@@ -269,7 +269,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   /** As below, by field API name; an unknown name throws. */
-  public List<SObject> getChangedRecords(Map<Id, SObject> previous, Set<String> fieldNames) {
+  global List<SObject> getChangedRecords(Map<Id, SObject> previous, Set<String> fieldNames) {
     Set<SObjectField> fields = new Set<SObjectField>();
     Map<String, SObjectField> byName = source().fieldMap();
     for (String name : fieldNames ?? new Set<String>()) {
@@ -286,7 +286,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
    * The records whose value in any of the fields differs from their previous version. A record with
    * no previous version (or no Id) counts as changed, as do all of them when there is no history.
    */
-  public List<SObject> getChangedRecords(Map<Id, SObject> previous, Set<SObjectField> fields) {
+  global List<SObject> getChangedRecords(Map<Id, SObject> previous, Set<SObjectField> fields) {
     if (fields == null || fields.isEmpty()) {
       throw new IllegalArgumentException('Field tokens cannot be null/empty');
     }
@@ -313,7 +313,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
    * The records that meet the condition, tested in memory. Fields read through lookups need those
    * related records loaded; an unloaded parent reads as null.
    */
-  public List<SObject> filter(ICondition condition) {
+  global List<SObject> filter(ICondition condition) {
     if (condition == null) {
       throw new IllegalArgumentException('Condition cannot be null');
     }
@@ -329,7 +329,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   /** A sorted copy of the records; the domain's own order is unchanged. */
-  public List<SObject> sort(IOrdering ordering) {
+  global List<SObject> sort(IOrdering ordering) {
     List<SObject> sorted = records.clone();
     ordering.apply(sorted);
     return sorted;
@@ -368,7 +368,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   /** The records grouped by the text of a path's value; null groups under 'null'. */
-  public Map<String, List<SObject>> segment(Object path) {
+  global Map<String, List<SObject>> segment(Object path) {
     IPath field = resolvePath(path);
     Map<String, List<SObject>> groups = new Map<String, List<SObject>>();
     for (SObject record : records) {
@@ -385,7 +385,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   /** The records grouped by an Id-valued path; records without an Id there are left out. */
-  public Map<Id, List<SObject>> segmentId(Object path) {
+  global Map<Id, List<SObject>> segmentId(Object path) {
     IPath field = resolvePath(path);
     Map<Id, List<SObject>> groups = new Map<Id, List<SObject>>();
     for (SObject record : records) {
@@ -404,7 +404,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   /** segment(), remembered per path until the records change or forget() is called. */
-  public Map<String, List<SObject>> catalog(Object path) {
+  global Map<String, List<SObject>> catalog(Object path) {
     IPath field = resolvePath(path);
     if (!catalogs.containsKey(field)) {
       catalogs.put(field, segment(field));
@@ -413,7 +413,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   /** segmentId(), remembered the same way. */
-  public Map<Id, List<SObject>> catalogId(Object path) {
+  global Map<Id, List<SObject>> catalogId(Object path) {
     IPath field = resolvePath(path);
     if (!catalogsById.containsKey(field)) {
       catalogsById.put(field, segmentId(field));
@@ -422,7 +422,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   /** Drops what catalog() and catalogId() remembered for the path; an unknown path is ignored. */
-  public void forget(Object path) {
+  global void forget(Object path) {
     IPath field;
     try {
       field = resolvePath(path);
@@ -434,7 +434,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
   }
 
   /** The loaded related records along a lookup path, by Id. */
-  public Map<Id, SObject> collectRecords(Object path) {
+  global Map<Id, SObject> collectRecords(Object path) {
     IPath field = resolvePath(path);
     if (!(field instanceof ILookupPath)) {
       throw new IllegalArgumentException('Path is not a lookup relationship: ' + path);
@@ -455,7 +455,7 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
    * or of records without a field), COUNT_DISTINCT, MIN and MAX (numbers, dates, times, text), and
    * SUM and AVG (numbers). Null values are skipped; MIN, MAX, SUM and AVG of nothing are null.
    */
-  public Object aggregate(IAggregateFunction function) {
+  global Object aggregate(IAggregateFunction function) {
     if (function == null) {
       throw new IllegalArgumentException('Aggregate function cannot be null');
     }
@@ -535,11 +535,11 @@ public virtual class DomainRecords implements IDomain, ITriggered, ITriggeredCon
     throw new IllegalArgumentException(functionName + ' requires numeric field');
   }
 
-  public void updateDifferent(SObject template, IWork work) {
+  global void updateDifferent(SObject template, IWork work) {
     applyTemplate(template, work, false);
   }
 
-  public void updateBlank(SObject template, IWork work) {
+  global void updateBlank(SObject template, IWork work) {
     applyTemplate(template, work, true);
   }
 

@@ -280,7 +280,7 @@ In a trigger hook, build one work, track everything, and apply it once at the en
 ```apex
 public override void onAfterUpsert(Map<Id, SObject> oldMap) {
   inj.IWork work = App.s.work();
-  for (Opportunity row : (List<Opportunity>) base().records()) {
+  for (Opportunity row : (List<Opportunity>) records()) {
     if (row.StageName == 'Closed Won') {
       work.track(new Task(WhatId = row.Id, Subject = 'Send the welcome pack'));
     }

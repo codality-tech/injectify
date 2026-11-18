@@ -120,10 +120,10 @@ inj.Async.queueable(new PrepareData())
 
 ## Install
 
-The unlocked package (namespace `inj`) is in beta: `Injectify@0.3.0-1`. A beta version installs in a scratch org or a sandbox, not in production; no version is promoted yet.
+The unlocked package (namespace `inj`) is in beta: `Injectify@0.3.0-2`. A beta version installs in a scratch org or a sandbox, not in production; no version is promoted yet.
 
 ```bash
-sf package install --package 04tgK000000apjxQAA --target-org <alias> --wait 20
+sf package install --package 04tgK000000aq05QAA --target-org <alias> --wait 20
 ```
 
 Or deploy the source to a scratch org:

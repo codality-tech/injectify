@@ -15,7 +15,7 @@
  *
  * Subclass it (or BaseQuery, from another namespace) to give an object default fields.
  */
-public virtual inherited sharing class Query implements IQuery {
+global virtual inherited sharing class Query implements IQuery {
   public virtual class UnifException extends Exception {
   }
 
@@ -87,17 +87,17 @@ public virtual inherited sharing class Query implements IQuery {
     defaulted = other.defaulted;
   }
 
-  public virtual IQuery deepClone() {
+  global virtual IQuery deepClone() {
     return new Query(this);
   }
 
-  public virtual IModel source() {
+  global virtual IModel source() {
     return source;
   }
 
   // SELECT
 
-  public virtual IQueryFields fields() {
+  global virtual IQueryFields fields() {
     if (selection == null) {
       selection = new QueryFields(source);
     }
@@ -109,19 +109,19 @@ public virtual inherited sharing class Query implements IQuery {
     return null;
   }
 
-  public virtual Query addAllFields() {
+  global virtual Query addAllFields() {
     fields().addAll();
     return this;
   }
 
   /** Every field of the object the route leads to. */
-  public virtual Query addAllFields(Object route) {
+  global virtual Query addAllFields(Object route) {
     fields().addAll(route);
     return this;
   }
 
   /** Selects the fields the other clauses use: Id, lookup routes, filtered and ordered fields. */
-  public virtual IQuery addImplicitFields() {
+  global virtual IQuery addImplicitFields() {
     Set<IPath> used = new Set<IPath>(fields().getRoutes());
     IPath idPath = source().path('id');
     if (idPath != null) {
@@ -136,12 +136,12 @@ public virtual inherited sharing class Query implements IQuery {
   }
 
   /** A child subquery, by its relationship field. */
-  public virtual IQuery addSubquery(SObjectField relationshipField, IQuery child) {
+  global virtual IQuery addSubquery(SObjectField relationshipField, IQuery child) {
     return nest(source().getChildRelationship(relationshipField), (Query) child);
   }
 
   /** A child subquery, by relationship name, or by the child's lookup field name. */
-  public virtual IQuery addSubquery(String relationshipName, IQuery child) {
+  global virtual IQuery addSubquery(String relationshipName, IQuery child) {
     ChildRelationship link = source().getChildRelationship(relationshipName);
     if (link == null) {
       SObjectField lookupField = child.source().fieldMap().get(relationshipName);
@@ -162,14 +162,14 @@ public virtual inherited sharing class Query implements IQuery {
     return this;
   }
 
-  public virtual Map<String, IQuery> getSubqueryMap() {
+  global virtual Map<String, IQuery> getSubqueryMap() {
     return subqueries.clone();
   }
 
   // WHERE, ORDER BY, LIMIT, OFFSET, security
 
   /** The root condition, an AND that starts empty, made by the model's own core. */
-  public virtual ILogicalCondition filters() {
+  global virtual ILogicalCondition filters() {
     if (conditions == null) {
       ICore owner = source?.core();
       conditions = owner == null ? Application.s.all(null) : owner.all(null);
@@ -177,24 +177,24 @@ public virtual inherited sharing class Query implements IQuery {
     return conditions;
   }
 
-  public virtual IQuery addCondition(ICondition condition) {
+  global virtual IQuery addCondition(ICondition condition) {
     filters().add(condition);
     return this;
   }
 
   /** The live list of orderings; add to it directly. */
-  public virtual List<IOrdering> orderings() {
+  global virtual List<IOrdering> orderings() {
     return orderBy;
   }
 
   /** Zero or null means no limit. */
-  public virtual IQuery setLimit(Integer maxRows) {
+  global virtual IQuery setLimit(Integer maxRows) {
     rowLimit = maxRows ?? 0;
     return this;
   }
 
   /** Zero or null means no offset. */
-  public virtual IQuery setOffset(Integer skipRows) {
+  global virtual IQuery setOffset(Integer skipRows) {
     rowOffset = skipRows ?? 0;
     return this;
   }
@@ -205,13 +205,13 @@ public virtual inherited sharing class Query implements IQuery {
    * fields of its subqueries. Sharing is left as it is; for sharing as well, use withSharing.
    * (The platform retired WITH SECURITY_ENFORCED, which did this, at API version 67.)
    */
-  public virtual IQuery withSecurity(Boolean enforce) {
+  global virtual IQuery withSecurity(Boolean enforce) {
     securityEnforced = enforce == true;
     return this;
   }
 
   /** Runs in user mode (sharing rules and field security) instead of system mode. */
-  public virtual IQuery withSharing(Boolean enforce) {
+  global virtual IQuery withSharing(Boolean enforce) {
     userMode = enforce == true;
     return this;
   }
@@ -221,7 +221,7 @@ public virtual inherited sharing class Query implements IQuery {
    * changes them in between. It applies to run() and fetch(); count() and toLocator() leave it
    * out, since the platform accepts it on neither. The platform refuses it with ORDER BY.
    */
-  public virtual IQuery forUpdate(Boolean lock) {
+  global virtual IQuery forUpdate(Boolean lock) {
     locking = lock == true;
     return this;
   }
@@ -229,16 +229,16 @@ public virtual inherited sharing class Query implements IQuery {
   // Output
 
   /** The SOQL with values written inline. */
-  public virtual String toSoql() {
+  global virtual String toSoql() {
     return toSoql(null);
   }
 
   /** With `binding` true, values become :a0, :a1... placeholders instead. */
-  public virtual String toSoql(Boolean binding) {
+  global virtual String toSoql(Boolean binding) {
     return new Statement(binding).complete(this, null);
   }
 
-  public virtual List<SObject> run() {
+  global virtual List<SObject> run() {
     requireReadAccess(true);
     Statement statement = new Statement(true);
     String soql = statement.complete(this, null);
@@ -246,7 +246,7 @@ public virtual inherited sharing class Query implements IQuery {
   }
 
   /** At most `maxRows` rows, whatever the query's own limit. */
-  public virtual List<SObject> fetch(Integer maxRows) {
+  global virtual List<SObject> fetch(Integer maxRows) {
     requireReadAccess(true);
     Statement statement = new Statement(true);
     String soql = statement.complete(this, String.valueOf(maxRows));
@@ -254,19 +254,19 @@ public virtual inherited sharing class Query implements IQuery {
   }
 
   /** The first row, or null. */
-  public virtual SObject fetch() {
+  global virtual SObject fetch() {
     List<SObject> rows = fetch(1);
     return rows.isEmpty() ? null : rows[0];
   }
 
-  public virtual Integer count() {
+  global virtual Integer count() {
     requireReadAccess(false);
     Statement statement = new Statement(true);
     String soql = statement.counting(this);
     return source().scheme().countQueryWithBinds(soql, statement.binds, accessLevel());
   }
 
-  public virtual Database.QueryLocator toLocator() {
+  global virtual Database.QueryLocator toLocator() {
     requireReadAccess(true);
     Statement statement = new Statement(true);
     statement.lockable = false;

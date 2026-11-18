@@ -8,7 +8,7 @@ Things that are easy to get wrong:
 
 - Registry keys are the object's type, not its token: `Account.class => Accounts.class`, never `Account.SObjectType`.
 - Query and domain classes extend `inj.BaseQuery` and `inj.BaseDomain`, are declared `global`, and override hooks as `public` or `global` (never `protected`).
-- Inside those classes, inherited methods are reached through `base()`: `base().records()`, `base().addCondition(...)`.
+- Inside those classes, inherited methods are called directly: `records()`, `addCondition(...)`. (`base()`, needed before 0.3.0-2, still works.)
 - `run()` binds condition values (`:a0`, `:a1`); `toSoql()` writes them inline and is for display.
 - Queries and units of work run in system mode unless `withSharing(true)` asks for user mode.
 - Framework exceptions other than `inj.Application.FactoryException` and the utility classes' exceptions are not global: catch `Exception`.

@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Injectify** is a Salesforce unlocked package (namespace: `inj`) that provides a comprehensive Apex framework for rapid application development. It uses factory patterns, dependency injection, and interface-based abstractions to provide unified access to SOQL queries, DML operations, trigger handlers, async operations, and domain logic.
 
-**Current Version:** 0.3.0 (beta `Injectify@0.3.0-1`, `04tgK000000apjxQAA`, built 2026-11-17 and installed in `s-unify`, not promoted; changes under Unreleased in CHANGELOG.md)
+**Current Version:** 0.3.0 (beta `Injectify@0.3.0-2`, `04tgK000000aq05QAA`, built 2026-11-18 and installed in `s-unify`, not promoted; changes under Unreleased in CHANGELOG.md)
 **Source API Version:** 68.0
 **Package Alias:** Injectify
 
@@ -37,7 +37,7 @@ sf apex test run -t QueryFactoryTest -c
 sf package version create --package "Injectify" --path force-app --wait 10 --installation-key-bypass --code-coverage
 
 # Install package to target org
-sf package install --package "Injectify@0.3.0-1" --target-org <alias> --wait 10
+sf package install --package "Injectify@0.3.0-2" --target-org <alias> --wait 10
 ```
 
 ### Analysis & Verification
@@ -314,7 +314,7 @@ Subscribers can extend the framework by creating custom query and domain classes
 - Override `onInitialized(IModel source)` hook for custom initialization
 - Override `getDefaultFields()` to specify default field sets (leave it out and the factory selects every field)
 - Declare the class `global`; overrides are `public` or `global`, never `protected`
-- Use `base()` method for cross-namespace access to parent methods
+- Call inherited `IQuery` methods directly (they are `global` on `Query` since 0.3.0-2); `base()` remains for older code
 
 **BaseDomain Extension:**
 
@@ -322,7 +322,7 @@ Subscribers can extend the framework by creating custom query and domain classes
 - Override `onBeforeUpsert(Map<Id, SObject> oldMap)` for INSERT/UPDATE logic
 - Override `onAfterUpsert(Map<Id, SObject> oldMap)` for post-processing
 - Check `oldMap == null` to distinguish INSERT from UPDATE
-- Use `base()` method for cross-namespace access
+- Call inherited `IDomain` methods directly (they are `global` on `DomainRecords` since 0.3.0-2); `base()` remains for older code
 
 **Example:**
 
@@ -367,7 +367,7 @@ The package is unlocked (the packaging route for the open-source release is not 
 
 2. **Expose abstractions (interfaces), hide implementations (classes)**
    - Interfaces are `global` (define contracts)
-   - Implementations are `public` (evolve freely)
+   - Implementations are `public` (evolve freely). The two exceptions are `Query` and `DomainRecords`: they are `global`, with the interface's methods `global` on them, so a subscriber's subclass of `BaseQuery` or `BaseDomain` can call what it inherits without `base()`. Nothing beyond the interface's methods is `global` on them
    - Static methods are entry points
 
 3. **Global = a promise to subscribers**

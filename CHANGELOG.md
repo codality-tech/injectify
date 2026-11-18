@@ -8,6 +8,7 @@ The package is now **Injectify**, an unlocked package in the namespace `inj`; it
 
 ### Added
 
+- **A class that extends `BaseQuery` or `BaseDomain` can call what it inherits directly**: `setLimit(100)`, `records()`, `getChangedRecords(oldMap, fields)`, where it had to write `base().setLimit(100)`. Code holding your type can too: `accountQuery.run()`. The methods of `IQuery` and `IDomain` are now `global` on `Query` and `DomainRecords`, the classes the two base classes extend. `base()` still works.
 - A query guide (`docs/documentation/query-guide.md`).
 - The extension, work and testing guides, rewritten as subscriber code and checked against the source.
 - `MockScheme`: a scheme for tests. Describes are real; queries return rows you register (typed to the queried object) and are recorded with their bind values.

@@ -28,7 +28,7 @@ static void filtersByIndustryAndRevenue() {
 
   Assert.areEqual(
     'SELECT Id, Name, Industry, AnnualRevenue FROM Account WHERE (Industry = \'Energy\' AND AnnualRevenue > 1000000)',
-    big.base().toSoql()
+    big.toSoql()
   );
 }
 ```
@@ -49,7 +49,7 @@ static void returnsOnlyLargeEnergyAccounts() {
   };
 
   AccountQuery big = ((AccountQuery) App.s.qf().make(Account.SObjectType)).inIndustry('Energy').overRevenue(1000000);
-  List<Account> rows = (List<Account>) big.base().run();
+  List<Account> rows = (List<Account>) big.run();
 
   Assert.areEqual(1, rows.size());
   Assert.areEqual('Big Energy', rows[0].Name);
@@ -187,7 +187,6 @@ static void onlyStageChangesCount() {
   Opportunity after = new Opportunity(Id = fakeId, StageName = 'Prospecting', Amount = 500);
 
   List<SObject> changed = new Opportunities(new List<Opportunity>{ after })
-    .base()
     .getChangedRecords(new Map<Id, SObject>{ fakeId => before }, new Set<SObjectField>{ Opportunity.StageName });
 
   Assert.areEqual(0, changed.size());
@@ -283,7 +282,7 @@ The [async guide](async-guide.md#testing) has the details, including values shar
 
 ## What a subscriber test cannot do
 
-- **Subclass `Query`, `DomainRecords` or the factories.** They are not visible outside the package. Test doubles extend `inj.BaseQuery` or `inj.BaseDomain`, or implement a global interface such as `inj.ITriggered` or `inj.IScheme`.
+- **Subclass the factories, or `Query` and `DomainRecords` themselves.** They are not made to be extended from outside the package. Test doubles extend `inj.BaseQuery` or `inj.BaseDomain`, or implement a global interface such as `inj.ITriggered` or `inj.IScheme`.
 - **Fake an `AggregateResult`.** Put aggregate logic behind a method of your own that returns plain values, and stand that method in.
 - **Replace `App.s` from outside.** Its setter is private in the example `App`. Either pass the application into the code under test (as `AccountReview` does above), or give `App` a `@TestVisible` way to set it.
 
