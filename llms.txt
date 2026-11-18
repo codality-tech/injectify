@@ -1,0 +1,35 @@
+# Unify
+
+> An Apex framework for Salesforce that gives queries, conditions, triggers, DML and async jobs one consistent model. It is distributed as an unlocked package with the namespace `unif`. Pre-release (0.2.x): the public name and the API may change before 1.0.
+
+Code that uses the framework lives in a subscriber org and reaches it through the namespace: `unif.IQuery`, `unif.Application.make(...)`. Only `global` types are visible there. By convention a subscriber holds its application in a class of its own named `App`, as `App.s`; the guides are written that way.
+
+Things that are easy to get wrong:
+
+- Registry keys are the object's type, not its token: `Account.class => Accounts.class`, never `Account.SObjectType`.
+- Query and domain classes extend `unif.BaseQuery` and `unif.BaseDomain`, are declared `global`, and override hooks as `public` or `global` (never `protected`).
+- Inside those classes, inherited methods are reached through `base()`: `base().records()`, `base().addCondition(...)`.
+- `run()` binds condition values (`:a0`, `:a1`); `toSoql()` writes them inline and is for display.
+- Queries and units of work run in system mode unless `withSharing(true)` asks for user mode.
+- Framework exceptions other than `unif.Application.FactoryException` and the utility classes' exceptions are not global: catch `Exception`.
+
+## Guides
+
+- [README](README.md): what the framework does, and a sixty-second tour
+- [Extension guide](docs/documentation/extension-guide.md): the `App` entry point, custom query classes, domain classes, triggers, services, working across the namespace
+- [Query guide](docs/documentation/query-guide.md): fields, lookups and TYPEOF, conditions (built, parsed from text, evaluated in memory), ordering, subqueries, security, aggregate queries, SOSL searches
+- [Work guide](docs/documentation/work-guide.md): the unit of work: inserts, updates, upserts, deletes, related records, ordering, user mode, partial success, errors
+- [Async guide](docs/documentation/async-guide.md): queueable, batch and schedulable handlers, chaining, jobs started inside jobs, shared values
+- [Testing guide](docs/documentation/testing-guide.md): asserting on SOQL, `MockScheme`, testing domains, work and async jobs
+- [Utilities guide](docs/documentation/utilities-guide.md): the twelve utility classes (test data, CSV, fields, records, persistent values, limits, UUIDs)
+
+## Reference
+
+- [API listing](docs/documentation/package_api.apex): every global type and method signature, generated from the source
+- [Changelog](CHANGELOG.md): what changed in each version, including behavior changes
+
+## Optional
+
+- [Comparison](docs/documentation/comparison.md): how the framework relates to fflib, Trigger Actions Framework, SOQL Lib and Nebula Logger, and when to pick one of those instead
+- [Contributing](CONTRIBUTING.md): how to build, test and propose changes
+- [Agent skill](skills/unify-apex/SKILL.md): the same rules as above in the form coding agents load

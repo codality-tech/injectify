@@ -1,0 +1,17 @@
+{
+  "packageDirectories": [
+    {
+      "path": "force-app",
+      "default": true,
+      "package": "Unify",
+      "versionName": "ver 0.2.7",
+      "versionNumber": "0.2.7.NEXT",
+      "versionDescription": "Unify Framework - Rapid Development Framework"
+    }
+  ],
+  "sourceApiVersion": "68.0",
+  "packageAliases": {
+    "Unify": "0HogK0000000SqjSAE",
+    "Unify@0.2.7-5": "04tgK000000aJ8zQAE"
+  }
+}
