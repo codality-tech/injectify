@@ -82,8 +82,8 @@ For inserts, DML Lib does the same job. The delete ordering is the narrow differ
 - **You want the established enterprise patterns with the largest community, training and books:** use fflib-apex-common.
 - **You only need a query builder, with excellent documentation:** use SOQL Lib.
 - **You need logging:** use [Nebula Logger](https://github.com/jongpie/NebulaLogger). This framework has none.
-- **You need an installable package today:** this framework is pre-release and distributed as source for now.
+- **You need a long track record:** this version is new, with one maintainer and no CI yet.
 
 ## Status
 
-The framework is pre-release (0.2.x), and the packaging route is still being decided. A community, a documentation site and install options are still to come. The [changelog](../../CHANGELOG.md) lists what has changed.
+The framework is at 0.3.0, its first release as the unlocked package Injectify (namespace `inj`). The API may change before 1.0. A community, a documentation site and CI are still to come. The [changelog](../../CHANGELOG.md) lists what has changed.

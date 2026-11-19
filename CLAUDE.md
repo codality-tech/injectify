@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **Injectify** is a Salesforce unlocked package (namespace: `inj`) that provides a comprehensive Apex framework for rapid application development. It uses factory patterns, dependency injection, and interface-based abstractions to provide unified access to SOQL queries, DML operations, trigger handlers, async operations, and domain logic.
 
-**Current Version:** 0.3.0 (beta `Injectify@0.3.0-2`, `04tgK000000aq05QAA`, built 2026-11-18 and installed in `s-unify`, not promoted; changes under Unreleased in CHANGELOG.md)
+**Current Version:** 0.3.0 (released as `Injectify@0.3.0-2`, `04tgK000000aq05QAA`, promoted 2026-11-18 and installed in `s-unify`; the next release is 0.3.1 or later, and new changes go under Unreleased in CHANGELOG.md)
 **Source API Version:** 68.0
 **Package Alias:** Injectify
 
@@ -357,7 +357,7 @@ For detailed information on using and extending the framework, see:
 
 ## Package API Design Principles
 
-The package is unlocked (the packaging route for the open-source release is not final). Subscribers reach only what is `global`, and a production org builds on it. This codebase follows strict API exposure rules so the implementation can change without breaking them:
+The package is unlocked. Subscribers reach only what is `global`, and a production org builds on it. This codebase follows strict API exposure rules so the implementation can change without breaking them:
 
 ### Golden Rules
 
