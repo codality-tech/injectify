@@ -65,8 +65,8 @@ Inline SOQL and DML are right in three places only:
 1. **Tests**, to set records up and to check what the code saved. A test that asserts with the
    framework's own query is checking the framework with itself.
 2. **A scheme class** (`inj.IScheme`): that is where the framework's queries are executed.
-3. **A query the framework cannot express.** Write it inline with a comment that says why. In
-   versions after 0.3.0 these are not among them (see the query guide):
+3. **A query the framework cannot express.** Write it inline with a comment that says why. From
+   version 0.4.0 these are not among them (see the query guide):
    - a semi-join: `App.s.iin(Account.Id, contactQuery)` writes `Id IN (SELECT AccountId FROM Contact ...)`;
    - a date literal: `App.s.ge(Account.CreatedDate, inj.DateLiteral.lastNDays(30))` writes
      `CreatedDate >= LAST_N_DAYS:30`;

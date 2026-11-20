@@ -86,4 +86,4 @@ For inserts, DML Lib does the same job. The delete ordering is the narrow differ
 
 ## Status
 
-The framework is at 0.3.0, its first release as the unlocked package Injectify (namespace `inj`). The API may change before 1.0. A community, a documentation site and CI are still to come. The [changelog](../../CHANGELOG.md) lists what has changed.
+The framework is at 0.4.0, released as the unlocked package Injectify (namespace `inj`); its first release was 0.3.0. The API may change before 1.0. A community, a documentation site and CI are still to come. The [changelog](../../CHANGELOG.md) lists what has changed.

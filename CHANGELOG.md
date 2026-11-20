@@ -4,7 +4,11 @@ All notable changes to this project. Versions follow [semantic versioning](https
 
 ## Unreleased
 
-The next version is 0.4.0: the new methods on `IQuery` and `IAggregateQuery` break a class that implements either directly (see Changed).
+Nothing yet.
+
+## 0.4.0
+
+Released 2026-11-20 as `Injectify@0.4.0-1`. It is 0.4.0, not 0.3.1, because the new methods on `IQuery` and `IAggregateQuery` break a class that implements either directly (see Changed).
 
 ### Added
 
