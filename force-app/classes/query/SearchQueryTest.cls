@@ -528,6 +528,43 @@ private class SearchQueryTest {
     Assert.areEqual(new Set<SObjectType>{ Account.SObjectType }, byType.keySet(), 'types without hits are left out');
   }
 
+  @IsTest
+  static void aSemiJoinIsWrittenInlineInsideReturning() {
+    IQuery innerQuery = QueryTest.contactsIn(Application.s, 'Seattle');
+    IQuery accounts = Application.s.model(Account.SObjectType).query().setLimit(5);
+    accounts.filters().add(Application.s.iin(Account.Id, innerQuery));
+    ISearchQuery search = Application.s.searchQuery(new List<IQuery>{ accounts });
+    innerQuery.filters().add(Application.s.eq(Contact.LastName, 'added after the search took its copy'));
+
+    Assert.areEqual(
+      'FIND {Acme} RETURNING Account(Id WHERE (Id IN (SELECT AccountId FROM Contact WHERE (MailingCity = \'Seattle\'))) LIMIT 5)',
+      search.toSosl('Acme')
+    );
+    Assert.isTrue(search.run('Acme')[0].isEmpty(), 'valid SOSL; no fixed results were set');
+  }
+
+  @IsTest
+  static void aSearchFiltersBySemiJoinAndByAntiJoin() {
+    Account west = new Account(Name = 'Acme West');
+    Account east = new Account(Name = 'Acme East');
+    insert new List<Account>{ west, east };
+    insert new Contact(LastName = 'North', AccountId = west.Id, MailingCity = 'Seattle');
+    Test.setFixedSearchResults(new List<Id>{ west.Id, east.Id });
+
+    IQuery withContact = Application.s.model(Account.SObjectType).query();
+    withContact.filters().add(Application.s.iin(Account.Id, QueryTest.contactsIn(Application.s, 'Seattle')));
+    List<SObject> withOne = Application.s.searchQuery(new List<IQuery>{ withContact }).run('Acme')[0];
+
+    IQuery withoutContact = Application.s.model(Account.SObjectType).query();
+    withoutContact.filters().add(Application.s.nin(Account.Id, QueryTest.contactsIn(Application.s, 'Seattle')));
+    List<SObject> withNone = Application.s.searchQuery(new List<IQuery>{ withoutContact }).run('Acme')[0];
+
+    Assert.areEqual(1, withOne.size());
+    Assert.areEqual(west.Id, withOne[0].Id);
+    Assert.areEqual(1, withNone.size());
+    Assert.areEqual(east.Id, withNone[0].Id);
+  }
+
   // Notes what it is asked to search, then lets the platform run it.
   private class WatchingScheme implements IScheme, ISearchScheme {
     private IScheme real = new SchemeDefault();
@@ -643,5 +680,219 @@ private class SearchQueryTest {
     List<List<SObject>> found = older.searchQuery(new List<IQuery>{ accounts }).run('Acme');
 
     Assert.areEqual(acme.Id, found[0][0].Id);
+  }
+
+  @IsTest
+  static void theLimitOfAnObjectComesFromItsQueryNotFromTextInAFilterValue() {
+    IQuery accounts = Application.s.model(Account.SObjectType).query();
+    accounts.fields().add(new Set<SObjectField>{ Account.Name });
+    accounts.filters().add(Application.s.eq(Account.Name, 'Acme LIMIT 9 OFFSET 7 corp'));
+
+    Assert.areEqual(
+      'FIND {Acme} RETURNING Account(Id, Name WHERE (Name = \'Acme LIMIT 9 OFFSET 7 corp\'))',
+      Application.s.searchQuery(new List<IQuery>{ accounts }).toSosl('Acme'),
+      'the value is a value: the query has no limit'
+    );
+
+    accounts.setLimit(3).setOffset(2);
+    ISearchQuery limited = Application.s.searchQuery(new List<IQuery>{ accounts });
+    Assert.areEqual(
+      'FIND {Acme} RETURNING Account(Id, Name WHERE (Name = \'Acme LIMIT 9 OFFSET 7 corp\') LIMIT 3 OFFSET 2)',
+      limited.toSosl('Acme')
+    );
+    Assert.isTrue(limited.run('Acme')[0].isEmpty(), 'valid SOSL; no fixed results were set');
+  }
+
+  @IsTest
+  static void aSearchNeedsQueriesTheFrameworkMade() {
+    IQuery real = Application.s.model(Account.SObjectType).query().setLimit(4);
+    SearchQuery search = new SearchQuery(new Set<SObjectType>{ Account.SObjectType });
+    search.targetMap().put(Account.SObjectType, new WrappedQuery(real));
+
+    try {
+      search.toSosl('Acme');
+      Assert.fail('a query of another class was written into a search');
+    } catch (SearchQuery.SearchException refused) {
+      Assert.areEqual('A search needs queries made by the framework', refused.getMessage());
+    }
+
+    search.targetMap().put(Account.SObjectType, real);
+    Assert.areEqual('FIND {Acme} RETURNING Account(Id LIMIT 4)', search.toSosl('Acme'));
+  }
+
+  @IsTest
+  static void aDateLiteralIsWrittenInsideReturning() {
+    Opportunity soon = new Opportunity(Name = 'Acme soon', StageName = 'Prospecting', CloseDate = Date.today().addDays(2));
+    Opportunity later = new Opportunity(Name = 'Acme later', StageName = 'Prospecting', CloseDate = Date.today().addDays(200));
+    insert new List<Opportunity>{ soon, later };
+    Test.setFixedSearchResults(new List<Id>{ soon.Id, later.Id });
+    IQuery closing = Application.s.model(Opportunity.SObjectType).query();
+    closing.filters().add(Application.s.eq(Opportunity.CloseDate, DateLiteral.nextNDays(30)));
+    closing.filters().add(Application.s.iin(Opportunity.CreatedDate, new List<IDateLiteral>{ DateLiteral.today(), DateLiteral.yesterday() }));
+    ISearchQuery search = Application.s.searchQuery(new List<IQuery>{ closing });
+
+    Assert.areEqual(
+      'FIND {Acme} RETURNING Opportunity(Id WHERE (CloseDate = NEXT_N_DAYS:30 AND CreatedDate IN (TODAY, YESTERDAY)))',
+      search.toSosl('Acme')
+    );
+    List<SObject> found = search.run('Acme')[0];
+    Assert.areEqual(1, found.size());
+    Assert.areEqual(soon.Id, found[0].Id);
+  }
+
+  @IsTest
+  static void aPathThroughAPolymorphicLookupFiltersAndOrdersASearch() {
+    Account acme = new Account(Name = 'Acme');
+    insert acme;
+    Task about = new Task(Subject = 'Acme call', WhatId = acme.Id);
+    Task loose = new Task(Subject = 'Acme note');
+    insert new List<Task>{ about, loose };
+    Test.setFixedSearchResults(new List<Id>{ about.Id, loose.Id });
+    IQuery tasks = Application.s.model(Task.SObjectType).query();
+    tasks.fields().add(new Set<String>{ 'What.Name' });
+    tasks.filters().add(Application.s.eq('What.Type', 'Account'));
+    tasks.orderings().add(Application.s.ordering('Owner.Name', true, false));
+    ISearchQuery search = Application.s.searchQuery(new List<IQuery>{ tasks });
+
+    Assert.areEqual(
+      'FIND {Acme} RETURNING Task(Id, What.Name WHERE (What.Type = \'Account\') ORDER BY Owner.Name ASC NULLS FIRST)',
+      search.toSosl('Acme')
+    );
+    List<Task> found = (List<Task>) search.run('Acme')[0];
+    Assert.areEqual(1, found.size());
+    Assert.areEqual('Acme', found[0].What.Name);
+  }
+
+  @IsTest
+  static void aSearchTakesNoAllRowsAndNoScope() {
+    Map<String, IQuery> queryByOption = new Map<String, IQuery>{
+      'ALL ROWS' => Application.s.model(Account.SObjectType).query().allRows(true),
+      'USING SCOPE' => Application.s.model(Account.SObjectType).query().usingScope(Enums.FilterScope.MINE)
+    };
+
+    for (String option : queryByOption.keySet()) {
+      try {
+        Application.s.searchQuery(new List<IQuery>{ queryByOption.get(option) }).toSosl('Acme');
+        Assert.fail('a search was written with ' + option);
+      } catch (SearchQuery.SearchException refused) {
+        Assert.areEqual('Cannot write ' + option + ' in a search: the query on Account asks for it', refused.getMessage());
+      }
+    }
+
+    // A mark or a lock on a query is not the search's to make, and is left out
+    IQuery marked = Application.s.model(Account.SObjectType).query().forView(true).forUpdate(true);
+    Assert.areEqual('FIND {Acme} RETURNING Account(Id)', Application.s.searchQuery(new List<IQuery>{ marked }).toSosl('Acme'));
+  }
+
+  @IsTest
+  static void aGroupWithNothingInItIsAConstantInsideReturning() {
+    Account acme = new Account(Name = 'Acme');
+    insert acme;
+    Test.setFixedSearchResults(new List<Id>{ acme.Id });
+    IQuery accounts = Application.s.model(Account.SObjectType).query();
+    accounts.filters().add(Application.s.any(new List<ICondition>()));
+    ISearchQuery never = Application.s.searchQuery(new List<IQuery>{ accounts });
+
+    Assert.areEqual('FIND {Acme} RETURNING Account(Id WHERE ((Id = null AND Id != null)))', never.toSosl('Acme'));
+    Assert.isTrue(never.run('Acme')[0].isEmpty(), 'an empty OR finds nothing');
+
+    accounts.filters().clear().add(Application.s.all(new List<ICondition>()));
+    ISearchQuery always = Application.s.searchQuery(new List<IQuery>{ accounts });
+    Assert.areEqual('FIND {Acme} RETURNING Account(Id WHERE ((Id = null OR Id != null)))', always.toSosl('Acme'));
+    Assert.areEqual(1, always.run('Acme')[0].size(), 'an empty AND keeps what was found');
+
+    accounts.filters().clear();
+    Assert.areEqual('FIND {Acme} RETURNING Account(Id)', Application.s.searchQuery(new List<IQuery>{ accounts }).toSosl('Acme'));
+  }
+
+  // A query class of someone else's: all the search can ask it for is what the interface gives.
+  private class WrappedQuery implements IQuery {
+    private IQuery real;
+
+    private WrappedQuery(IQuery real) {
+      this.real = real;
+    }
+
+    public List<SObject> run() {
+      return real.run();
+    }
+    public SObject fetch() {
+      return real.fetch();
+    }
+    public List<SObject> fetch(Integer maxRows) {
+      return real.fetch(maxRows);
+    }
+    public Integer count() {
+      return real.count();
+    }
+    public Database.QueryLocator toLocator() {
+      return real.toLocator();
+    }
+    public String toSoql(Boolean binding) {
+      return real.toSoql(binding);
+    }
+    public String toSoql() {
+      return real.toSoql();
+    }
+    public IModel source() {
+      return real.source();
+    }
+    public IQueryFields fields() {
+      return real.fields();
+    }
+    public IQuery addAllFields() {
+      return this;
+    }
+    public IQuery addImplicitFields() {
+      return this;
+    }
+    public IQuery addSubquery(String relationshipName, IQuery child) {
+      return this;
+    }
+    public IQuery addSubquery(SObjectField relationshipField, IQuery child) {
+      return this;
+    }
+    public Map<String, IQuery> getSubqueryMap() {
+      return real.getSubqueryMap();
+    }
+    public IQuery addCondition(ICondition condition) {
+      return this;
+    }
+    public ILogicalCondition filters() {
+      return real.filters();
+    }
+    public List<IOrdering> orderings() {
+      return real.orderings();
+    }
+    public IQuery setOffset(Integer skipRows) {
+      return this;
+    }
+    public IQuery setLimit(Integer maxRows) {
+      return this;
+    }
+    public IQuery withSharing(Boolean enforce) {
+      return this;
+    }
+    public IQuery withSecurity(Boolean enforce) {
+      return this;
+    }
+    public IQuery forUpdate(Boolean lock) {
+      return this;
+    }
+    public IQuery allRows(Boolean include) {
+      return this;
+    }
+    public IQuery usingScope(Enums.FilterScope scope) {
+      return this;
+    }
+    public IQuery forView(Boolean mark) {
+      return this;
+    }
+    public IQuery forReference(Boolean mark) {
+      return this;
+    }
+    public IQuery deepClone() {
+      return this;
+    }
   }
 }

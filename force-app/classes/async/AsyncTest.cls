@@ -127,6 +127,18 @@ public class AsyncTest {
     public IQuery forUpdate(Boolean lock) {
       return this;
     }
+    public IQuery allRows(Boolean include) {
+      return this;
+    }
+    public IQuery usingScope(Enums.FilterScope scope) {
+      return this;
+    }
+    public IQuery forView(Boolean mark) {
+      return this;
+    }
+    public IQuery forReference(Boolean mark) {
+      return this;
+    }
     public string toSoql() {
       return 'SELECT Id FROM User LIMIT 1';
     }

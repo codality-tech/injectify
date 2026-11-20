@@ -231,6 +231,16 @@ public virtual inherited sharing class SearchQuery implements ISearchQuery {
       if (!q.getSubqueryMap().isEmpty()) {
         throw new SearchException('SOSL does not support subqueries');
       }
+      if (!(q instanceof Query)) {
+        throw new SearchException('A search needs queries made by the framework');
+      }
+      Query own = (Query) q;
+      String refused = own.wholeQueryOption();
+      if (refused != null) {
+        throw new SearchException(
+          'Cannot write ' + refused + ' in a search: the query on ' + q.source().name() + ' asks for it'
+        );
+      }
 
       List<String> parts = new List<String>();
 
@@ -242,7 +252,7 @@ public virtual inherited sharing class SearchQuery implements ISearchQuery {
 
       // Fields: in a user-mode search the defaults the user cannot read are left out, as in SOQL
       Boolean asUser = query.accessLevel() == System.AccessLevel.USER_MODE;
-      String fieldsClause = q instanceof Query ? ((Query) q).selectedFields(asUser) : q.fields().toSoql();
+      String fieldsClause = own.selectedFields(asUser);
       if (String.isNotBlank(fieldsClause)) {
         clauses.add(fieldsClause);
       }
@@ -263,25 +273,12 @@ public virtual inherited sharing class SearchQuery implements ISearchQuery {
         clauses.add('ORDER BY ' + String.join(orderItems, ', '));
       }
 
-      // LIMIT (per-object limit from query)
-      String soql = q.toSoql();
-      if (soql.contains(' LIMIT ')) {
-        // Extract limit from SOQL
-        Pattern limitPattern = Pattern.compile('LIMIT\\s+(\\d+)');
-        Matcher limitMatcher = limitPattern.matcher(soql);
-        if (limitMatcher.find()) {
-          clauses.add('LIMIT ' + limitMatcher.group(1));
-        }
+      // LIMIT and OFFSET (per object, from the query)
+      if (own.rowLimit() != 0) {
+        clauses.add('LIMIT ' + own.rowLimit());
       }
-
-      // OFFSET
-      if (soql.contains(' OFFSET ')) {
-        // Extract offset from SOQL
-        Pattern offsetPattern = Pattern.compile('OFFSET\\s+(\\d+)');
-        Matcher offsetMatcher = offsetPattern.matcher(soql);
-        if (offsetMatcher.find()) {
-          clauses.add('OFFSET ' + offsetMatcher.group(1));
-        }
+      if (own.rowOffset() != 0) {
+        clauses.add('OFFSET ' + own.rowOffset());
       }
 
       // Combine

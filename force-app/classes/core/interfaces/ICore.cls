@@ -28,6 +28,7 @@ global interface ICore {
   IFieldCondition cond(Enums.Comparator op, Object lhs, Object rhs);
 
   // Convenience condition methods
+  // On a date or date-time field the value may be a date literal: DateLiteral.lastNDays(30)
   IFieldCondition eq(Object lhs, Object rhs);
   IFieldCondition ne(Object lhs, Object rhs);
   IFieldCondition ge(Object lhs, Object rhs);
@@ -35,6 +36,8 @@ global interface ICore {
   IFieldCondition gt(Object lhs, Object rhs);
   IFieldCondition lt(Object lhs, Object rhs);
   IFieldCondition lk(Object lhs, Object rhs);
+  // iin and nin take a list or set, an IQuery: a semi-join (IN) or anti-join (NOT IN),
+  // or a List<IDateLiteral>
   IFieldCondition iin(Object lhs, Object rhs);
   IFieldCondition nin(Object lhs, Object rhs);
   IFieldCondition inc(Object lhs, Object rhs);

@@ -1,7 +1,8 @@
 /**
  * An aggregate SOQL query: grouped fields, aggregate functions (each with an alias), WHERE and
- * HAVING conditions, ordering, limit and offset. ROLLUP and CUBE add GROUPING() columns for every
- * grouped field. Like Query, run() binds condition values; toSoql() writes them inline.
+ * HAVING conditions, ordering, limit and offset, ALL ROWS and USING SCOPE. ROLLUP and CUBE add
+ * GROUPING() columns for every grouped field. Like Query, run() binds condition values; toSoql()
+ * writes them inline.
  */
 public virtual inherited sharing class AggregateQuery implements IAggregateQuery {
   public virtual class AggregateException extends Exception {
@@ -21,6 +22,8 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
   private Integer rowOffset;
   private Boolean securityEnforced = false;
   private Boolean userMode = false;
+  private Boolean deletedToo = false;
+  private Enums.FilterScope scope;
 
   public AggregateQuery() {
   }
@@ -59,6 +62,8 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
     rowOffset = other.rowOffset;
     securityEnforced = other.securityEnforced;
     userMode = other.userMode;
+    deletedToo = other.deletedToo;
+    scope = other.scope;
   }
 
   public virtual IAggregateQuery deepClone() {
@@ -91,7 +96,7 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
     return this;
   }
 
-  /** Conditions on the rows before grouping (WHERE). */
+  /** Conditions on the rows before grouping (WHERE). A semi-join or anti-join goes here. */
   public ILogicalCondition filters() {
     if (whereRoot == null) {
       whereRoot = emptyRoot();
@@ -99,7 +104,7 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
     return whereRoot;
   }
 
-  /** Conditions on the groups (HAVING), usually comparing an aggregate function. */
+  /** Conditions on the groups (HAVING), usually comparing an aggregate function. No semi-joins. */
   public ILogicalCondition havingFilters() {
     if (havingRoot == null) {
       havingRoot = emptyRoot();
@@ -129,8 +134,9 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
   }
 
   /**
-   * Refuses the query, with a QueryException, unless the running user may read the object and
-   * every field it aggregates or groups by. Sharing is left as it is.
+   * Refuses the query, with a QueryException, unless the running user may read the object, every
+   * field it aggregates or groups by, and the object and field that the inner query of a
+   * semi-join in its WHERE clause selects. Sharing is left as it is.
    */
   public IAggregateQuery withSecurity(Boolean enforce) {
     securityEnforced = enforce == true;
@@ -140,6 +146,22 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
   /** Runs in user mode (sharing rules and field security) instead of system mode. */
   public IAggregateQuery withSharing(Boolean enforce) {
     userMode = enforce == true;
+    return this;
+  }
+
+  /** Adds ALL ROWS: records in the recycle bin and archived activities are counted as well. */
+  public IAggregateQuery allRows(Boolean include) {
+    deletedToo = include == true;
+    return this;
+  }
+
+  /**
+   * Adds USING SCOPE: only the records in the scope are read; null removes it. The platform ends
+   * the transaction for a scope the object does not support. (An aggregate query takes neither
+   * FOR VIEW nor FOR REFERENCE: the platform fails on them, so they are not offered here.)
+   */
+  public IAggregateQuery usingScope(Enums.FilterScope scope) {
+    this.scope = scope;
     return this;
   }
 
@@ -184,6 +206,7 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
           refused.add(String.valueOf(field.getDescribe().getSObjectType()) + '.' + shape.getName());
         }
       }
+      Query.addUnreadableJoins(whereRoot, refused);
     }
     if (!refused.isEmpty()) {
       throw new QueryException('Insufficient permissions: the running user cannot read ' + String.join(refused, ', '));
@@ -217,12 +240,14 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
       List<String> pairs = new List<String>{
         'SELECT', selectList(),
         'FROM', target.source.name(),
-        'WHERE', conditionText(target.whereRoot),
+        'USING SCOPE', Query.scopeName(target.scope),
+        'WHERE', conditionText(target.whereRoot, false),
         'GROUP BY', groupClause(),
-        'HAVING', conditionText(target.havingRoot),
+        'HAVING', conditionText(target.havingRoot, true),
         'ORDER BY', orderList(),
         'LIMIT', target.rowLimit == null ? null : String.valueOf(target.rowLimit),
-        'OFFSET', target.rowOffset == null ? null : String.valueOf(target.rowOffset)
+        'OFFSET', target.rowOffset == null ? null : String.valueOf(target.rowOffset),
+        'ALL', target.deletedToo ? 'ROWS' : null
       };
       List<String> kept = new List<String>();
       for (Integer at = 0; at < pairs.size(); at += 2) {
@@ -272,15 +297,28 @@ public virtual inherited sharing class AggregateQuery implements IAggregateQuery
       return modifier + '(' + String.join(names, ', ') + ')';
     }
 
-    // A condition tree as SOQL; with binding, bindable values become placeholders.
-    private String conditionText(ILogicalCondition root) {
+    // A condition tree as SOQL; with binding, bindable values become placeholders. A semi-join's
+    // inner query is written in place, and its values share this statement's binds. Only WHERE
+    // takes one: the platform refuses a semi-join in HAVING. HAVING takes no bare field either,
+    // so its tree is compiled as `grouped`, which writes the constants of empty groups as counts.
+    private String conditionText(ILogicalCondition root, Boolean grouped) {
       if (root == null || root.getAll().isEmpty()) {
         return null;
       }
-      IConditionCompilation compiled = target.source.compileCondition(root);
+      IConditionCompilation compiled = grouped
+        ? new Filtering.ConditionCompilation(target.source, root, true)
+        : target.source.compileCondition(root);
       List<String> leaves = new List<String>();
       for (IFieldCondition leaf : compiled.getFieldConditions()) {
-        Boolean bindable = binding && Typing.operator(leaf.operator()).supportsBinding();
+        if (leaf.value() instanceof IQuery) {
+          if (grouped) {
+            throw new Filtering.ConditionException('Cannot write a semi-join in HAVING: it belongs in filters()');
+          }
+          String innerSoql = Query.semiJoinSoql((IQuery) leaf.value(), binding ? binds : null);
+          leaves.add(leaf.toSoql(innerSoql));
+          continue;
+        }
+        Boolean bindable = binding && Typing.bindable(leaf.operator(), leaf.value());
         leaves.add(bindable ? leaf.toSoql(placeholderFor(leaf.value())) : leaf.toSoql());
       }
       return String.format(compiled.getMarkup(), leaves);

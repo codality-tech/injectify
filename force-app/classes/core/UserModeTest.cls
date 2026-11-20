@@ -291,6 +291,100 @@ private class UserModeTest {
     }
   }
 
+  // --- semi-joins: the inner query is read as the outer query is ---------------------------------
+
+  // SELECT AccountId FROM Contact: an object this user has no access to.
+  private static IQuery contactAccounts() {
+    IQuery innerQuery = Application.s.model(Contact.SObjectType).query();
+    innerQuery.fields().add(new Set<SObjectField>{ Contact.AccountId });
+    return innerQuery;
+  }
+
+  @IsTest
+  static void aSemiJoinFollowsTheModeOfItsOuterQuery() {
+    User reader = reader();
+    Account acme = acmeOwnedBy(reader);
+    insert new Contact(LastName = 'Lovelace', AccountId = acme.Id);
+
+    System.runAs(reader) {
+      // System mode reads the contacts whatever the user may read. The inner query's own mode is not used.
+      IQuery asSystem = Application.s.model(Account.SObjectType).query();
+      asSystem.filters().add(Application.s.iin(Account.Id, contactAccounts().withSharing(true)));
+      Assert.areEqual(1, asSystem.run().size());
+
+      // User mode on the outer query covers the inner one: the platform refuses the object.
+      IQuery asUser = Application.s.model(Account.SObjectType).query().withSharing(true);
+      asUser.filters().add(Application.s.iin(Account.Id, contactAccounts()));
+      String why = refusalOf(asUser);
+      Assert.isNotNull(why, 'this user has no access to contacts');
+      Assert.isTrue(why.contains('Contact'), why);
+    }
+  }
+
+  @IsTest
+  static void withSecurityCoversTheInnerQueryOfASemiJoin() {
+    User reader = reader();
+    acmeOwnedBy(reader);
+
+    System.runAs(reader) {
+      IQuery secured = Application.s.model(Account.SObjectType).query().withSecurity(true);
+      secured.filters().add(Application.s.nin(Account.Id, contactAccounts()));
+
+      Assert.areEqual('Insufficient permissions: the running user cannot read Contact', refusalOf(secured));
+      try {
+        secured.count();
+        Assert.fail('a count has the semi-join too');
+      } catch (QueryException refused) {
+        Assert.isTrue(refused.getMessage().contains('Contact'), refused.getMessage());
+      }
+
+      IAggregateQuery counted = Application.s.model(Account.SObjectType).aggregateQuery().withSecurity(true);
+      counted.aggregates().add(Application.s.count(Account.Id));
+      counted.filters().add(Application.s.nin(Account.Id, contactAccounts()));
+      try {
+        counted.run();
+        Assert.fail('an aggregate query has the semi-join too');
+      } catch (QueryException refused) {
+        Assert.areEqual('Insufficient permissions: the running user cannot read Contact', refused.getMessage());
+      }
+
+      // Switched off, the query is in system mode as before: Acme has no contacts.
+      secured.withSecurity(false);
+      Assert.areEqual(1, secured.run().size());
+    }
+  }
+
+  @IsTest
+  static void withSecurityChecksTheFieldAnInnerQuerySelects() {
+    User reader = reader();
+    acmeOwnedBy(reader);
+
+    System.runAs(reader) {
+      // The owners of accounts: an object and a field this user may read.
+      IQuery owned = Application.s.model(Account.SObjectType).query();
+      owned.fields().add(new Set<SObjectField>{ Account.OwnerId });
+      IQuery owners = Application.s.model(User.SObjectType).query().withSecurity(true);
+      owners.filters().add(Application.s.iin(User.Id, owned));
+      List<SObject> found = owners.run();
+      Assert.areEqual(1, found.size());
+      Assert.areEqual(reader.Id, found[0].Id);
+      Assert.areEqual(1, owners.count());
+
+      // The users of accounts that have a child account: ParentId is a field this user may not read.
+      IQuery parents = Application.s.model(Account.SObjectType).query();
+      parents.fields().add(new Set<SObjectField>{ Account.ParentId });
+      IQuery users = Application.s.model(User.SObjectType).query().withSecurity(true);
+      users.filters().add(Application.s.iin(User.AccountId, parents));
+      Assert.areEqual('Insufficient permissions: the running user cannot read Account.ParentId', refusalOf(users));
+      try {
+        users.count();
+        Assert.fail('a count has the semi-join too');
+      } catch (QueryException refused) {
+        Assert.isTrue(refused.getMessage().contains('Account.ParentId'), refused.getMessage());
+      }
+    }
+  }
+
   @IsTest
   static void withSecurityRefusesAnObjectTheUserCannotRead() {
     User reader = reader();
@@ -307,6 +401,33 @@ private class UserModeTest {
       } catch (QueryException refused) {
         Assert.isTrue(refused.getMessage().contains('Opportunity'), refused.getMessage());
       }
+    }
+  }
+
+  @IsTest
+  static void withSecurityReadsAPathThroughAPolymorphicLookupForAUserWhoMayReadTheRecord() {
+    User reader = reader();
+    System.runAs(new User(Id = UserInfo.getUserId())) {
+      Id granted = [SELECT Id FROM PermissionSet WHERE Name = 'User_Mode_Test'].Id;
+      insert new ObjectPermissions(ParentId = granted, SobjectType = 'Case', PermissionsRead = true);
+    }
+    insert new Case(Subject = 'Owned', OwnerId = reader.Id);
+
+    System.runAs(reader) {
+      // The fields every owner has are the Name object's: what is checked is the case and its lookup field
+      IQuery secured = Application.s.model(Case.SObjectType).query().withSecurity(true);
+      secured.fields().add(new Set<String>{ 'Owner.Type', 'Owner.Name' });
+      secured.filters().add(Application.s.eq('Owner.Type', 'User'));
+
+      Assert.isNull(refusalOf(secured), 'the user may read cases, and so who owns them');
+      Case found = (Case) secured.fetch();
+      Assert.areEqual('User', found.Owner.Type);
+      Assert.areEqual('Restricted', found.Owner.Name);
+
+      // The lookup field itself is checked: this user may not read what a task is about
+      IQuery tasks = Application.s.model(Task.SObjectType).query().withSecurity(true);
+      tasks.fields().add(new Set<String>{ 'What.Type' });
+      Assert.areEqual('Insufficient permissions: the running user cannot read Task.WhatId', refusalOf(tasks));
     }
   }
 

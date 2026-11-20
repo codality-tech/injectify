@@ -101,7 +101,7 @@ ITriggeredFactory tf = app.tf();
 Foundation providing:
 
 - **Schema modeling:** `IModel`, `IPath`, `IReference` for SObject introspection
-- **Condition builders:** `eq()`, `ne()`, `gt()`, `lt()`, `ge()`, `le()`, `lk()`, `iin()`, `nin()`, `inc()`, `exc()`
+- **Condition builders:** `eq()`, `ne()`, `gt()`, `lt()`, `ge()`, `le()`, `lk()`, `iin()`, `nin()`, `inc()`, `exc()`; `iin()` and `nin()` also take an `IQuery` as the value, which makes a semi-join or anti-join; on a date or date-time field the value may be a date literal (`DateLiteral.lastNDays(30)`, or a `List<IDateLiteral>` for `iin`/`nin`)
 - **Orderings and aggregates:** `ordering()`, `count()`, `countDistinct()`, `sum()`, `avg()`, `min()`, `max()`, and `aggregate(Enums.Aggregate, field)` to choose the function at run time
 - **Work creation:** `work()` returns `IWork` for DML operations
 - **Search:** `searchQuery(List<IQuery>)` returns `ISearchQuery`
@@ -113,6 +113,12 @@ Foundation providing:
 - **Default fields** from the registered query class, or else every field except long text areas, formulas, namespaced fields, view dates, preference/permission flags and fields no user can be granted (`QueryFactory.defaultFieldScope`)
 - **Security:** system mode by default, with the sharing of the class that builds the query (the query classes declare `inherited sharing`) unless the scheme has a sharing keyword of its own; `withSharing(true)` runs the query in user mode (sharing, object and field permissions), leaving out default fields the user cannot read; `withSecurity(true)` keeps the mode and refuses the query (`QueryException`) unless the running user may read the object and every field the SELECT names
 - **Locking:** `forUpdate(true)` adds `FOR UPDATE` to `run()` and `fetch()`
+- **Statement options:** `allRows(true)` (`ALL ROWS`), `usingScope(Enums.FilterScope.MINE)` (`USING SCOPE mine`), `forView(true)`, `forReference(true)`, written in the one order the platform takes (`... LIMIT n OFFSET n FOR VIEW|FOR REFERENCE` then `FOR UPDATE` or `ALL ROWS`). `count()` takes `ALL ROWS` and the scope; `toLocator()` all but the lock. `AggregateQuery` has `allRows` and `usingScope` only (the platform fails on the view marks there). Refused with the query's own `Query.UnifValidationException`, because the platform's message is `unexpected token`: view with reference, lock with all rows, all rows or a scope on a child subquery, all rows on a semi-join's inner query; a search refuses all rows and a scope with its `SearchException`, and takes only queries that are a `Query`. Left to the platform: a scope the object does not support ends the transaction with an uncatchable error, and Apex has no describe for it
+- **Date literals:** `DateLiteral` (global; factories return `IDateLiteral`, the implementation is the public inner class `DateLiteral.Value`). Written inline and never bound (`Typing.bindable`), by `Typing.Comparison` for a field and by `Filtering.FieldCondition.aggregateLiteral` for a HAVING condition; both write through `DateLiteral.checked`, which reads a literal of another class from its text, so only a date literal reaches the SOQL. `ConditionParser` tokenizes them as `DATE_LITERAL` (`2026-01-31` is a `DATE_VALUE`). In memory `DateLiteral.Value.test` compares a day with the range `[startDate, endDate)`, in the running user's time zone and locale. Fiscal ranges come from `Organization.FiscalYearStartMonth`, read through the scheme the comparison passes in (two queries, cached for the transaction); custom fiscal years throw, and so does a count over 365000, the platform's ceiling
+- **Polymorphic lookups:** a path goes through one to the fields of `Schema.Name` (`What.Type`, `Owner.Name`): `Modeling.PolyPath.nameReference()` is the reference such paths start from (`Modeling.NameReference`), and `Modeling.beyond()` picks the model after a lookup. In memory `NameReference.read` and `follow` take a `Name` row, a row of the target itself or the Id alone; a group of any kind is `Queue`, as in SOQL. A target's own fields are selected with `TYPEOF` (`QueryFields.TypeofFields`); a path and `TYPEOF` through one lookup are refused when the SELECT is written (`QueryFields.checkOneReading`)
+- **Child subqueries** keep their conditions, ordering, limit and offset (`Statement.nested`)
+- **Semi-joins and anti-joins:** `iin(field, innerQuery)` / `nin(field, innerQuery)` write `field IN (SELECT ...)` / `NOT IN`. The inner query selects one field (the lookup field chosen, or Id when none is; a factory query needs `fields().clearFields()` first) and takes no limit or offset (`Query.checkJoinable` refuses anything else with a `UnifValidationException`); its values share the outer query's binds. `Query.semiJoinSoql` writes it, for `Query`, `AggregateQuery` (WHERE only: HAVING refuses with a `ConditionException`) and `Filtering.FieldCondition.toSoql()` (which SOSL uses). `withSecurity(true)` checks the inner object and field. It cannot be evaluated in memory or parsed from text. The platform's own rules (two per query, not under OR/NOT, top level of WHERE, different objects) are left to the platform; the query guide lists them. `inner` and `outer` are reserved words in Apex
+- **The three faces:** a condition is written as SOQL (`toSoql`, `Query.Statement`), read from text (`ConditionParser`) and tested in memory (`ICondition.evaluate`). A condition feature needs all three, or a clear exception and a line in the query guide where one is impossible. In memory the answer has three values inside the package (`FieldCondition.test` and `LogicalCondition.test` return null for SOQL's "unknown", as for an empty number compared with `>`), so that NOT leaves such rows out as SOQL does; `evaluate` turns unknown into false. An empty `any` or `all` is a constant on every face (`Typing.constantSoql`, written on `COUNT(Id)` for HAVING, which `ConditionCompilation` is told with `grouped`), `neg` flips, and the parser types a value by its token, so quoted text stays text. What builds but is not SOQL (null with an ordering operator or `lk`, `lk` on a multi-select picklist) is refused when it is written (`Typing.Comparison.checkWritable`) and is unknown in memory. The guide's section "Testing records in memory" lists what was checked against the database and where the faces still differ
 
 ```apex
 IQuery q = Application.s.qf().make(Account.SObjectType);
@@ -123,6 +129,13 @@ q.setLimit(100);
 
 List<SObject> results = q.run(); // values bound as :a0, :a1...
 String soql = q.toSoql(); // values written inline (escaped), for display
+
+// Semi-join: accounts that have a contact in Seattle
+IQuery inSeattle = Application.s.model(Contact.SObjectType).query();
+inSeattle.fields().add(new Set<SObjectField>{ Contact.AccountId });
+inSeattle.filters().add(Application.s.eq(Contact.MailingCity, 'Seattle'));
+q.filters().add(Application.s.iin(Account.Id, inSeattle));
+// ... AND Id IN (SELECT AccountId FROM Contact WHERE (MailingCity = :a1))
 ```
 
 #### 4. Aggregate Query System
@@ -352,7 +365,7 @@ For detailed information on using and extending the framework, see:
 - **[Async Guide](docs/documentation/async-guide.md)** - Handler pattern, chaining, capture modes, testing async code
 - **[Work Guide](docs/documentation/work-guide.md)** - DML operations, relationship handling, automatic ordering, performance characteristics
 - **[Testing Guide](docs/documentation/testing-guide.md)** - Testing queries, domains, async operations, test data patterns, mocking
-- **[Query Guide](docs/documentation/query-guide.md)** - Fields, lookups and TYPEOF, conditions (built, parsed, evaluated in memory), subqueries, aggregates, SOSL
+- **[Query Guide](docs/documentation/query-guide.md)** - Fields, lookups and polymorphic lookups, conditions (built, parsed, evaluated in memory), date literals, semi-joins and anti-joins, subqueries, statement options, aggregates, SOSL
 - **[Utilities Guide](docs/documentation/utilities-guide.md)** - The twelve `global` utility classes in `util/` (test data, CSV, fields, records, persistent values, limits, UUIDs)
 
 ## Package API Design Principles

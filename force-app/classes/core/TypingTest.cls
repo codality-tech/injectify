@@ -197,8 +197,8 @@ private class TypingTest {
     DescribeFieldResult amount = Opportunity.Amount.getDescribe();
 
     for (Enums.Comparator kind : new List<Enums.Comparator>{ Enums.Comparator.GT, Enums.Comparator.GE, Enums.Comparator.LT, Enums.Comparator.LE }) {
-      Assert.isFalse(Typing.doEvaluate(kind, amount, null, 1), 'null left, ' + kind);
-      Assert.isFalse(Typing.doEvaluate(kind, amount, 1, null), 'null right, ' + kind);
+      Assert.isNull(Typing.doEvaluate(kind, amount, null, 1), 'unknown: null left, ' + kind);
+      Assert.isNull(Typing.doEvaluate(kind, amount, 1, null), 'unknown: null right, ' + kind);
     }
     Assert.isTrue(Typing.doEvaluate(Enums.Comparator.EQ, amount, null, null));
   }
@@ -342,5 +342,151 @@ private class TypingTest {
 
   private static Typing.Comparison compare(SObjectField field, Enums.Comparator kind, Object value) {
     return Typing.comparison(Application.s.path(field), kind, value);
+  }
+
+  @IsTest
+  static void aDateLiteralIsARangeNotAValue() {
+    DateLiteral.fixedToday = Date.newInstance(2027, 6, 16);
+    Typing.Comparison thisYear = compare(Opportunity.CloseDate, Enums.Comparator.EQ, DateLiteral.thisYear());
+    Typing.Comparison lately = compare(
+      Opportunity.CreatedDate,
+      Enums.Comparator.NIN,
+      new List<IDateLiteral>{ DateLiteral.yesterday(), DateLiteral.today() }
+    );
+
+    Assert.areEqual('CloseDate = THIS_YEAR', thisYear.toSoql());
+    Assert.areEqual('CloseDate = :a0', thisYear.toSoql(':a0'), 'given text is still written as given');
+    Assert.areEqual('CreatedDate NOT IN (YESTERDAY, TODAY)', lately.toSoql());
+    Assert.areEqual(
+      '(Id = null AND Id != null)',
+      compare(Opportunity.CloseDate, Enums.Comparator.IIN, new List<IDateLiteral>()).toSoql(),
+      'IN no range at all is never true'
+    );
+
+    Assert.isTrue(thisYear.evaluate(new Opportunity(CloseDate = Date.newInstance(2027, 12, 31))));
+    Assert.isFalse(thisYear.evaluate(new Opportunity(CloseDate = Date.newInstance(2028, 1, 1))));
+    Assert.isFalse(lately.evaluate((Opportunity) JSON.deserialize('{"attributes":{"type":"Opportunity"},"CreatedDate":"2027-06-15T12:00:00.000+0000"}', Opportunity.class)));
+    Assert.isTrue(lately.evaluate((Opportunity) JSON.deserialize('{"attributes":{"type":"Opportunity"},"CreatedDate":"2027-06-13T12:00:00.000+0000"}', Opportunity.class)));
+    Assert.isNull(thisYear.evaluate(new Opportunity()), 'unknown for an empty date');
+    Assert.isTrue(compare(Opportunity.CloseDate, Enums.Comparator.NE, DateLiteral.thisYear()).evaluate(new Opportunity()));
+
+    Assert.isTrue(lately.evaluate(new Opportunity(Name = 'no CreatedDate')), 'an empty field is in neither range');
+    Assert.isNull(
+      compare(Opportunity.CloseDate, Enums.Comparator.IIN, new List<IDateLiteral>{ DateLiteral.today() }).evaluate(new Opportunity())
+    );
+    Assert.isFalse(compare(Opportunity.CloseDate, Enums.Comparator.IIN, new List<IDateLiteral>()).evaluate(new Opportunity()));
+  }
+
+  @IsTest
+  static void aDateLiteralIsRejectedWhereThePlatformRejectsIt() {
+    Map<String, Object[]> attempts = new Map<String, Object[]>{
+      'Name holds string values, so it cannot be compared with a date literal' => new List<Object>{ Opportunity.Name, Enums.Comparator.EQ, DateLiteral.lastNDays(3) },
+      'Amount holds decimal values' => new List<Object>{ Opportunity.Amount, Enums.Comparator.GT, DateLiteral.today() },
+      'MondayStartTime holds time values' => new List<Object>{ BusinessHours.MondayStartTime, Enums.Comparator.EQ, DateLiteral.today() },
+      'LK does not apply to a date literal' => new List<Object>{ Opportunity.CloseDate, Enums.Comparator.LK, DateLiteral.today() },
+      'EXC does not apply to a date literal' => new List<Object>{ Opportunity.CloseDate, Enums.Comparator.EXC, DateLiteral.today() },
+      'NIN takes a list of date literals, not one' => new List<Object>{ Opportunity.CloseDate, Enums.Comparator.NIN, DateLiteral.today() },
+      'GE takes one date literal, not a list of them' => new List<Object>{ Opportunity.CloseDate, Enums.Comparator.GE, new List<IDateLiteral>{ DateLiteral.today() } }
+    };
+
+    for (String fragment : attempts.keySet()) {
+      Object[] parts = attempts.get(fragment);
+      try {
+        compare((SObjectField) parts[0], (Enums.Comparator) parts[1], parts[2]);
+        Assert.fail('accepted: ' + fragment);
+      } catch (Typing.ValidationException expected) {
+        Assert.isTrue(expected.getMessage().contains(fragment), expected.getMessage());
+      }
+    }
+  }
+
+  @IsTest
+  static void anEmptyNumberDateOrTimeHasNoOrder() {
+    DescribeFieldResult amount = Opportunity.Amount.getDescribe();
+    DescribeFieldResult closeDate = Opportunity.CloseDate.getDescribe();
+    DescribeFieldResult opening = BusinessHours.MondayStartTime.getDescribe();
+    DescribeFieldResult name = Opportunity.Name.getDescribe();
+
+    for (Enums.Comparator kind : new List<Enums.Comparator>{ Enums.Comparator.GT, Enums.Comparator.GE, Enums.Comparator.LT, Enums.Comparator.LE }) {
+      Assert.isNull(Typing.doEvaluate(kind, amount, null, 1), 'unknown: an empty number, ' + kind);
+      Assert.isNull(Typing.doEvaluate(kind, closeDate, null, Date.today()), 'unknown: an empty date, ' + kind);
+      Assert.isNull(Typing.doEvaluate(kind, opening, null, Time.newInstance(9, 0, 0, 0)), 'unknown: an empty time, ' + kind);
+      Assert.isNotNull(Typing.doEvaluate(kind, name, null, 'a'), 'empty text reads as blank, and has an order: ' + kind);
+    }
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.EQ, amount, null, 1), 'equality answers for an empty field');
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.NE, closeDate, null, Date.today()));
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.NIN, amount, null, new Set<Integer>{ 1 }));
+  }
+
+  @IsTest
+  static void likeNeverMatchesAnEmptyField() {
+    DescribeFieldResult name = Opportunity.Name.getDescribe();
+
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.LK, name, null, '%'), 'not even with %');
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.LK, name, null, 'a%'));
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.LK, name, '', '%'), 'blank text that is there does match');
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.LK, name, null, ''), 'an empty pattern is not SOQL; bound, it matches empty fields');
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.LK, name, 'Acme', 'ac%'));
+  }
+
+  @IsTest
+  static void idsMatchInTheirExactCaseAndInEitherLength() {
+    DescribeFieldResult lookup = Opportunity.AccountId.getDescribe();
+    Id accountId = IdUtil.generateId(Account.SObjectType);
+    String whole = String.valueOf(accountId);
+    String shortForm = whole.left(15);
+
+    Assert.areEqual(18, whole.length());
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.EQ, lookup, accountId, shortForm), '15 characters match 18');
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.EQ, lookup, shortForm, whole), 'and 18 match 15');
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.IIN, lookup, accountId, new Set<String>{ shortForm }));
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.NIN, lookup, accountId, new List<String>{ shortForm }));
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.EQ, lookup, accountId, whole.toLowerCase()), 'another case is another Id');
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.EQ, lookup, accountId, 'not an id here'));
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.EQ, lookup, accountId, 'not an id here!'), 'fifteen characters that are not an Id');
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.EQ, lookup, null, null));
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.EQ, Opportunity.Name.getDescribe(), 'acme', 'ACME'), 'text still ignores case');
+  }
+
+  @IsTest
+  static void aCheckboxReadsNullAsFalse() {
+    DescribeFieldResult closed = Opportunity.IsClosed.getDescribe();
+
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.EQ, closed, false, null), 'as SOQL does: IsClosed = null finds the open ones');
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.EQ, closed, true, null));
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.NE, closed, true, null));
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.EQ, closed, null, false), 'a checkbox that was not set is unchecked');
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.IIN, closed, false, new List<Boolean>()), 'in nothing');
+  }
+
+  @IsTest
+  static void aDateOnADateTimeFieldIsWrittenAsMidnightGmt() {
+    Date day = Date.newInstance(2026, 1, 15);
+
+    Assert.areEqual('CreatedDate > 2026-01-15T00:00:00.000Z', compare(Opportunity.CreatedDate, Enums.Comparator.GT, day).toSoql());
+    Assert.areEqual(
+      'CreatedDate IN (2026-01-15T00:00:00.000Z)',
+      compare(Opportunity.CreatedDate, Enums.Comparator.IIN, new Set<Date>{ day }).toSoql()
+    );
+    Assert.areEqual('CloseDate > 2026-01-15', compare(Opportunity.CloseDate, Enums.Comparator.GT, day).toSoql(), 'a date field takes the date');
+    Assert.isTrue(
+      compare(Opportunity.CreatedDate, Enums.Comparator.EQ, day)
+        .evaluate((Opportunity) JSON.deserialize('{"attributes":{"type":"Opportunity"},"CreatedDate":"2026-01-15T00:00:00.000+0000"}', Opportunity.class)),
+      'and in memory it is the same moment'
+    );
+  }
+
+  @IsTest
+  static void aMultiSelectValueMayNameSeveralChoices() {
+    DescribeFieldResult anyText = Opportunity.Name.getDescribe(); // INCLUDES reads the value alike whatever the field
+
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.INC, anyText, 'red;green;blue', new List<String>{ 'green;RED' }), 'it has both');
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.INC, anyText, 'red', new List<String>{ 'green;red' }), 'it has one of the two');
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.INC, anyText, 'red', new List<String>{ 'green;red', 'red' }), 'the values are alternatives');
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.EXC, anyText, 'red', new List<String>{ 'green;red' }));
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.EXC, anyText, 'green;red', new List<String>{ 'red;green' }));
+    Assert.isNull(Typing.doEvaluate(Enums.Comparator.INC, anyText, null, new Set<String>{ 'red' }), 'unknown: an empty field includes nothing, and NOT leaves it out too');
+    Assert.isTrue(Typing.doEvaluate(Enums.Comparator.EXC, anyText, null, new Set<String>{ 'red' }), 'but it does exclude everything');
+    Assert.isFalse(Typing.doEvaluate(Enums.Comparator.INC, anyText, null, new Set<String>()), 'a list of nothing is a constant, with an answer');
   }
 }

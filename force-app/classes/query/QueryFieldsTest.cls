@@ -824,4 +824,112 @@ private class QueryFieldsTest {
     Task found = (Task) tasks.run()[0];
     Assert.areEqual('Typed Acme', found.getSObject('What').get('Name'));
   }
+
+  @IsTest
+  static void fieldsEveryTargetHasAreSelectedThroughAPolymorphicLookupAsPaths() {
+    QueryFields byName = new QueryFields(Task.SObjectType);
+    byName.add(new Set<String>{ 'Subject', 'What.Type', 'What.Name', 'Owner.Profile.Name' });
+    Assert.areEqual('Id, Subject, What.Type, What.Name, Owner.Profile.Name', byName.toSoql());
+
+    QueryFields byRoute = new QueryFields(Task.SObjectType);
+    byRoute.add('What', new Set<String>{ 'Type', 'Name', 'NoSuchField' });
+    byRoute.add(Task.WhoId, new Set<String>{ 'Type' });
+    Assert.areEqual('Id, What.Type, What.Name, Who.Type', byRoute.toSoql(), 'names are those of the Name object; unknown ones are skipped');
+
+    QueryFields byToken = new QueryFields(Task.SObjectType);
+    byToken.add(Task.WhatId, new Set<SObjectField>{ Schema.Name.Type });
+    byToken.add(Task.WhoId, new Set<SObjectField>{ Contact.Email });
+    Assert.areEqual(
+      'Id, What.Type, TYPEOF Who WHEN Contact THEN Id, Email END',
+      byToken.toSoql(),
+      'a shared field is a path; a field of one target is a TYPEOF branch'
+    );
+
+    Set<String> routes = new Set<String>();
+    for (IPath route : byName.getRoutes()) {
+      routes.add(route.name());
+    }
+    Assert.areEqual(new Set<String>{ 'WhatId', 'Owner.ProfileId' }, routes, 'the lookups the fields were reached through');
+    Assert.isTrue(byName.everyFieldNamed().containsAll(new Set<SObjectField>{ Task.WhatId, Task.OwnerId, Schema.Name.Type, Schema.Name.ProfileId, Profile.Name }));
+  }
+
+  @IsTest
+  static void aPathAndTypeofThroughOneLookupAreRefused() {
+    QueryFields together = new QueryFields(Task.SObjectType);
+    together.add(Task.WhatId, new Set<SObjectField>{ Schema.Name.Type, Account.Industry });
+    QueryFields inTurn = new QueryFields(Task.SObjectType);
+    inTurn.add(Task.WhatId, new Set<SObjectField>{ Account.Industry });
+    inTurn.add(new Set<String>{ 'Subject', 'What.Type' });
+    QueryFields further = new QueryFields(Task.SObjectType);
+    further.add(new Set<String>{ 'Owner.Profile.Name' });
+    further.add(Task.OwnerId, new Set<SObjectField>{ User.Email });
+    List<QueryFields> selections = new List<QueryFields>{ together, inTurn, further };
+    List<String> clashes = new List<String>{
+      'What.Type beside TYPEOF What',
+      'What.Type beside TYPEOF What',
+      'Owner.Profile.Name beside TYPEOF Owner'
+    };
+
+    for (Integer at = 0; at < selections.size(); at++) {
+      String refusal = 'Cannot select ' + clashes[at] + ': one SELECT reads a lookup as a path or with TYPEOF, not both';
+      try {
+        selections[at].toSoql();
+        Assert.fail('written: ' + clashes[at]);
+      } catch (Exception refused) {
+        Assert.areEqual(refusal, refused.getMessage());
+      }
+      try {
+        selections[at].toSoqlWithout(new Set<SObjectField>{ Task.Subject });
+        Assert.fail('written without a field: ' + clashes[at]);
+      } catch (Exception refused) {
+        Assert.areEqual(refusal, refused.getMessage());
+      }
+    }
+    // What the platform says of the same SELECT
+    try {
+      Database.query('SELECT Id, What.Type, TYPEOF What WHEN Account THEN Id, Industry END FROM Task');
+      Assert.fail('the platform took a path beside TYPEOF');
+    } catch (QueryException platform) {
+      Assert.isTrue(platform.getMessage().contains('may not reference the same relationship field'), platform.getMessage());
+    }
+    // A path through one lookup beside TYPEOF through another is fine, and so is a filter on the type
+    IQuery apart = Application.s.model(Task.SObjectType).query();
+    apart.fields().add(Task.WhatId, new Set<SObjectField>{ Account.Industry });
+    apart.fields().add(new Set<String>{ 'Who.Type' });
+    apart.filters().add(Application.s.eq('What.Type', 'Account'));
+    Assert.areEqual(
+      'SELECT Id, Who.Type, TYPEOF What WHEN Account THEN Id, Industry END FROM Task WHERE (What.Type = \'Account\')',
+      apart.toSoql()
+    );
+    Assert.areEqual(0, apart.run().size());
+  }
+
+  @IsTest
+  static void aSelectionWithPolymorphicPathsMovesUnderALookup() {
+    QueryFields ofCase = new QueryFields(Case.SObjectType);
+    ofCase.add(new Set<String>{ 'Subject', 'Owner.Name', 'Owner.Type' });
+    QueryFields ofComment = new QueryFields(CaseComment.SObjectType);
+
+    ofComment.add('Parent', ofCase);
+
+    Assert.areEqual('Id, Parent.Subject, Parent.Owner.Name, Parent.Owner.Type', ofComment.toSoql());
+  }
+
+  @IsTest
+  static void aQueryRunsWithFieldsThroughAPolymorphicLookup() {
+    Account acme = new Account(Name = 'Typed Acme');
+    insert acme;
+    insert new Task(Subject = 'Call', WhatId = acme.Id);
+    IQuery tasks = Application.s.model(Task.SObjectType).query();
+    tasks.fields().add(Task.WhatId, new Set<SObjectField>{ Schema.Name.Type, Schema.Name.Name });
+    tasks.fields().add('Owner', new Set<String>{ 'Name', 'IsActive' });
+    tasks.addImplicitFields();
+
+    Assert.areEqual('SELECT Id, What.Type, What.Name, Owner.Name, Owner.IsActive, WhatId, OwnerId FROM Task', tasks.toSoql());
+    Task found = (Task) tasks.run()[0];
+    Assert.areEqual('Account', found.What.Type);
+    Assert.areEqual('Typed Acme', found.What.Name);
+    Assert.areEqual(acme.Id, found.WhatId, 'the lookup field itself, added as an implicit field');
+    Assert.areEqual(UserInfo.getUserId(), found.OwnerId);
+  }
 }

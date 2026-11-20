@@ -28,8 +28,10 @@ public class ConditionParser {
     FIELD,
     STRING_LITERAL,
     NUMBER_LITERAL,
-    DATE_LITERAL,
-    DATETIME_LITERAL,
+    DATE_VALUE, // 2026-01-31
+    DATETIME_VALUE, // 2026-01-31T09:30:00Z
+    TIME_VALUE, // 09:30:00.000Z
+    DATE_LITERAL, // TODAY, LAST_N_DAYS:30
     BOOLEAN_LITERAL,
     NULL_VALUE,
     // Operators
@@ -66,6 +68,13 @@ public class ConditionParser {
       this.position = position;
     }
   }
+
+  private static final Pattern COUNT_APART = Pattern.compile(
+    '\\s*:\\s*(\\d+)'
+  );
+  private static final Pattern TIME_FORM = Pattern.compile(
+    '(\\d{2}):(\\d{2}):(\\d{2})(?:\\.(\\d{3}))?Z'
+  );
 
   /**
    * Tokenize input string into list of tokens.
@@ -109,9 +118,24 @@ public class ConditionParser {
         Integer start = pos;
         pos++; // Skip opening quote
         String value = '';
+        Boolean closed = false;
         while (pos < len) {
           String c = input.substring(pos, pos + 1);
-          if (c == '\'') {
+          if (c == '\\' && pos + 1 < len) {
+            // SOQL escape sequence: \' \\ \n \u00e9
+            String escaped = input.substring(pos + 1, pos + 2);
+            String hexCode = input.mid(pos + 2, 4);
+            if (
+              escaped.equalsIgnoreCase('u') &&
+              Pattern.matches('[0-9a-fA-F]{4}', hexCode)
+            ) {
+              value += unicodeCharacter(hexCode);
+              pos += 6;
+            } else {
+              value += unescape(escaped);
+              pos += 2;
+            }
+          } else if (c == '\'') {
             // Check for escaped quote ('')
             if (pos + 1 < len && input.substring(pos + 1, pos + 2) == '\'') {
               value += '\'';
@@ -119,12 +143,20 @@ public class ConditionParser {
             } else {
               // End of string
               pos++;
+              closed = true;
               break;
             }
           } else {
             value += c;
             pos++;
           }
+        }
+        if (!closed) {
+          throw new ParseException(
+            'The text that starts at position ' +
+              start +
+              ' has no closing quote'
+          );
         }
         tokens.add(new Token(TokenType.STRING_LITERAL, value, start));
         continue;
@@ -152,6 +184,18 @@ public class ConditionParser {
             pos++;
           } else {
             break;
+          }
+        }
+
+        // Date literal with spaces around its colon: LAST_N_DAYS : 30
+        String keyword = value.removeEnd(':');
+        if (DateLiteral.isLiteralText(keyword + ':0')) {
+          Matcher apart = COUNT_APART.matcher(
+            input.substring(start + keyword.length())
+          );
+          if (apart.lookingAt()) {
+            value = keyword + ':' + apart.group(1);
+            pos = start + keyword.length() + apart.end();
           }
         }
 
@@ -223,6 +267,47 @@ public class ConditionParser {
   }
 
   /**
+   * The character a SOQL escape sequence stands for. \% and \_ are kept as
+   * they are (LIKE reads them), and so is a backslash before any other
+   * character.
+   */
+  private String unescape(String escaped) {
+    switch on escaped.toLowerCase() {
+      when 'n' {
+        return '\n';
+      }
+      when 'r' {
+        return '\r';
+      }
+      when 't' {
+        return '\t';
+      }
+      when 'b' {
+        return '\b';
+      }
+      when 'f' {
+        return '\f';
+      }
+      when '\'', '"', '\\' {
+        return escaped;
+      }
+    }
+    return '\\' + escaped;
+  }
+
+  /**
+   * The character with the four-digit hexadecimal code, as in \u00e9
+   */
+  private String unicodeCharacter(String hexCode) {
+    Integer code = 0;
+    String digits = hexCode.toLowerCase();
+    for (Integer at = 0; at < digits.length(); at++) {
+      code = code * 16 + '0123456789abcdef'.indexOf(digits.mid(at, 1));
+    }
+    return String.fromCharArray(new List<Integer>{ code });
+  }
+
+  /**
    * Helper to check if character is alphanumeric
    */
   private Boolean isAlphaNumeric(String c) {
@@ -259,6 +344,11 @@ public class ConditionParser {
 
     // Handle "NOT IN" as two separate tokens (NOT + IN) - parser will combine
 
+    // SOQL date literals: TODAY, THIS_WEEK, LAST_N_DAYS:30
+    if (DateLiteral.isLiteralText(value)) {
+      return new Token(TokenType.DATE_LITERAL, value, position);
+    }
+
     // Datetime (YYYY-MM-DDTHH:mm:ss[.SSS][Z|±HH:mm])
     if (
       value.contains('T') &&
@@ -273,13 +363,18 @@ public class ConditionParser {
           value
         )
       ) {
-        return new Token(TokenType.DATETIME_LITERAL, value, position);
+        return new Token(TokenType.DATETIME_VALUE, value, position);
       }
     }
 
     // Date (YYYY-MM-DD)
     if (Pattern.matches('\\d{4}-\\d{2}-\\d{2}', value)) {
-      return new Token(TokenType.DATE_LITERAL, value, position);
+      return new Token(TokenType.DATE_VALUE, value, position);
+    }
+
+    // Time (HH:mm:ss[.SSS]Z)
+    if (TIME_FORM.matcher(value).matches()) {
+      return new Token(TokenType.TIME_VALUE, value, position);
     }
 
     // Number (integer or decimal)
@@ -334,9 +429,22 @@ public class ConditionParser {
    * Parse tokenized input into parse tree.
    */
   public ParseNode parse(String input) {
-    tokens = tokenize(input);
+    tokens = tokenize(input ?? '');
     currentIndex = 0;
-    return parseExpression();
+    ParseNode root = parseExpression();
+    // Anything after a complete condition (ORDER BY, LIMIT) is not part of it
+    Token rest = peek();
+    if (rest.type != TokenType.EOF) {
+      throw new ParseException(
+        'Unexpected ' +
+          rest.value +
+          ' at position ' +
+          rest.position +
+          ': the condition is complete before it,' +
+          ' and only AND or OR can continue it'
+      );
+    }
+    return root;
   }
 
   private Token peek() {
@@ -385,20 +493,20 @@ public class ConditionParser {
    */
   private ParseNode parseOrExpression() {
     ParseNode left = parseAndExpression();
+    LogicalNode orNode = null;
 
     while (match(TokenType.OP_OR)) {
       consume(); // OR
       ParseNode right = parseAndExpression();
 
-      // Combine into LogicalNode
-      if (left instanceof LogicalNode && ((LogicalNode) left).isOr) {
-        ((LogicalNode) left).children.add(right);
-      } else {
-        LogicalNode orNode = new LogicalNode(true);
+      // Combine into the LogicalNode of this chain. A group that came
+      // back complete (in parentheses, perhaps negated) is one child
+      if (orNode == null) {
+        orNode = new LogicalNode(true);
         orNode.children.add(left);
-        orNode.children.add(right);
         left = orNode;
       }
+      orNode.children.add(right);
     }
 
     return left;
@@ -410,20 +518,19 @@ public class ConditionParser {
    */
   private ParseNode parseAndExpression() {
     ParseNode left = parsePrimary();
+    LogicalNode andNode = null;
 
     while (match(TokenType.OP_AND)) {
       consume(); // AND
       ParseNode right = parsePrimary();
 
-      // Combine into LogicalNode
-      if (left instanceof LogicalNode && !((LogicalNode) left).isOr) {
-        ((LogicalNode) left).children.add(right);
-      } else {
-        LogicalNode andNode = new LogicalNode(false);
+      // Combine into the LogicalNode of this chain (see parseOrExpression)
+      if (andNode == null) {
+        andNode = new LogicalNode(false);
         andNode.children.add(left);
-        andNode.children.add(right);
         left = andNode;
       }
+      andNode.children.add(right);
     }
 
     return left;
@@ -446,11 +553,13 @@ public class ConditionParser {
         return parseFieldCondition();
       }
 
-      // Regular NOT negation
+      // Regular NOT negation; a second NOT takes the first one back
       if (node instanceof LogicalNode) {
-        ((LogicalNode) node).isNegated = true;
+        LogicalNode branch = (LogicalNode) node;
+        branch.isNegated = !branch.isNegated;
       } else if (node instanceof FieldConditionNode) {
-        ((FieldConditionNode) node).isNegated = true;
+        FieldConditionNode leaf = (FieldConditionNode) node;
+        leaf.isNegated = !leaf.isNegated;
       }
       return node;
     }
@@ -528,12 +637,31 @@ public class ConditionParser {
     // Handle list values (for IN operator)
     if (match(TokenType.LPAREN)) {
       consume();
+      // IN (SELECT ...) is a semi-join: built in code, not read from text
+      if (match(TokenType.FIELD) && peek().value.equalsIgnoreCase('SELECT')) {
+        throw new ParseException(
+          'A subquery at position ' +
+            peek().position +
+            ' cannot be parsed: build a semi-join in code, with iin or nin'
+        );
+      }
       List<Object> values = new List<Object>();
+      // The platform takes a list of date literals or a list of values,
+      // never a mix of the two
+      Boolean ranges = match(TokenType.DATE_LITERAL);
 
       values.add(parseLiteral());
 
       while (match(TokenType.COMMA)) {
         consume();
+        if (match(TokenType.DATE_LITERAL) != ranges) {
+          throw new ParseException(
+            'A list cannot mix date literals with other values: ' +
+              peek().value +
+              ' at position ' +
+              peek().position
+          );
+        }
         values.add(parseLiteral());
       }
 
@@ -545,8 +673,10 @@ public class ConditionParser {
   }
 
   /**
-   * Parse literal value
-   * Grammar: STRING | NUMBER | DATE | DATETIME | BOOLEAN | NULL
+   * Parse literal value. The token decides the type: quoted text stays
+   * text, whatever it looks like ('94105', '2026-01-31').
+   * Grammar: STRING | NUMBER | DATE | DATETIME | TIME | DATE_LITERAL |
+   *          BOOLEAN | NULL
    */
   private Object parseLiteral() {
     Token tok = peek();
@@ -557,16 +687,23 @@ public class ConditionParser {
     }
     if (tok.type == TokenType.NUMBER_LITERAL) {
       consume();
-      // Return as string, will be converted in toCondition()
-      return tok.value;
+      return parseNumber(tok.value);
+    }
+    if (tok.type == TokenType.DATE_VALUE) {
+      consume();
+      return Date.valueOf(tok.value);
+    }
+    if (tok.type == TokenType.DATETIME_VALUE) {
+      consume();
+      return parseDatetime(tok.value);
+    }
+    if (tok.type == TokenType.TIME_VALUE) {
+      consume();
+      return parseTime(tok.value);
     }
     if (tok.type == TokenType.DATE_LITERAL) {
       consume();
-      return tok.value;
-    }
-    if (tok.type == TokenType.DATETIME_LITERAL) {
-      consume();
-      return tok.value;
+      return DateLiteral.of(tok.value);
     }
     if (tok.type == TokenType.BOOLEAN_LITERAL) {
       consume();
@@ -582,7 +719,83 @@ public class ConditionParser {
     );
   }
 
+  /**
+   * Parse number: a Decimal with a fraction, else an Integer, or a Long
+   * when it has more digits than an Integer is sure to hold.
+   */
+  private Object parseNumber(String digits) {
+    if (digits.contains('.')) {
+      return Decimal.valueOf(digits);
+    }
+    if (digits.replaceAll('[+\\-]', '').length() > 9) {
+      return Long.valueOf(digits);
+    }
+    return Integer.valueOf(digits);
+  }
+
+  /**
+   * Parse datetime string with timezone support.
+   * Handles: YYYY-MM-DDTHH:mm:ss[.SSS][Z|±HH:mm]
+   */
+  private Datetime parseDatetime(String dtString) {
+    Matcher mat = Pattern.compile(
+        '(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})(\\.\\d{3})?(Z|[+\\-]\\d{2}:\\d{2})?'
+      )
+      .matcher(dtString);
+
+    if (mat.matches()) {
+      Datetime dt = Datetime.valueOfGmt(mat.group(1).replace('T', ' '));
+      Long ms = dt.getTime();
+
+      // Add milliseconds if present
+      if (mat.group(2) != null) {
+        ms += Integer.valueOf(mat.group(2).replace('.', ''));
+      }
+
+      // Handle timezone: the text was read as UTC, so Z needs nothing
+      // and an offset is taken off
+      if (mat.group(3) != null) {
+        if (mat.group(3) != 'Z') {
+          // Timezone offset ±HH:mm; the sign belongs to hours and minutes
+          String offset = mat.group(3);
+          Integer hours = Integer.valueOf(offset.substring(1, 3));
+          Integer minutes = Integer.valueOf(offset.substring(4, 6));
+          Integer totalMinutes = hours * 60 + minutes;
+          if (offset.startsWith('-')) {
+            totalMinutes = -totalMinutes;
+          }
+          ms -= (totalMinutes * 60 * 1000);
+        }
+      }
+
+      return Datetime.newInstance(ms);
+    }
+
+    throw new ParseException('Invalid datetime format: ' + dtString);
+  }
+
+  /**
+   * Parse time of day, as SOQL writes one: HH:mm:ss[.SSS]Z
+   */
+  private Time parseTime(String timeString) {
+    Matcher mat = TIME_FORM.matcher(timeString);
+    mat.matches();
+    return Time.newInstance(
+      Integer.valueOf(mat.group(1)),
+      Integer.valueOf(mat.group(2)),
+      Integer.valueOf(mat.group(3)),
+      mat.group(4) == null ? 0 : Integer.valueOf(mat.group(4))
+    );
+  }
+
   // ========== PHASE 3: CONVERSION TO ICondition ==========
+
+  // Number types from narrowest to widest, as Typing names them.
+  private static final List<String> NUMBER_WIDTHS = new List<String>{
+    'integer',
+    'long',
+    'double'
+  };
 
   /**
    * Convert parse tree to ICondition using Filtering and Core instances.
@@ -631,7 +844,7 @@ public class ConditionParser {
     else if (node.operator == TokenType.EXC)
       op = Enums.Comparator.EXC;
 
-    // Convert value (handle datetimes, dates, numbers, lists)
+    // Convert value (a list becomes a strongly-typed list)
     Object convertedValue = convertValue(node.value, core);
 
     // Use factory method instead of constructor (constructor is private)
@@ -669,103 +882,51 @@ public class ConditionParser {
     if (value instanceof List<Object>) {
       // Convert list of values to strongly-typed list
       List<Object> values = (List<Object>) value;
-      List<Object> converted = new List<Object>();
+      // A list of date literals stays one: IN (THIS_WEEK, LAST_WEEK)
+      if (!values.isEmpty() && values[0] instanceof IDateLiteral) {
+        List<IDateLiteral> ranges = new List<IDateLiteral>();
+        for (Object each : values) {
+          ranges.add((IDateLiteral) each);
+        }
+        return ranges;
+      }
       String typeName = null;
 
       for (Object v : values) {
-        Object convertedItem = convertValue(v, core);
-        converted.add(convertedItem);
-
-        // Determine type name from first non-null value
-        if (typeName == null && convertedItem != null) {
-          Typing.SoapyValue soapy = Typing.getSoapyValue(convertedItem, null);
-          typeName = soapy.typeName();
+        // Determine type name from first non-null value; among numbers
+        // the widest wins, so (0, 10.5) is a list of decimals
+        if (v != null) {
+          String itemType = Typing.getSoapyValue(v, null).typeName();
+          Integer known = NUMBER_WIDTHS.indexOf(typeName);
+          Integer offered = NUMBER_WIDTHS.indexOf(itemType);
+          if (typeName == null || (known >= 0 && offered > known)) {
+            typeName = itemType;
+          }
         }
+      }
+
+      // Decimals keep the digits they were written with: (0, 10.5)
+      if (typeName == 'double') {
+        List<Decimal> numbers = new List<Decimal>();
+        for (Object v : values) {
+          numbers.add((Decimal) v);
+        }
+        return numbers;
       }
 
       // Use JSON deserialization to convert List<Object> to strongly-typed List<T>
       // This is required for IN/NOT IN operators to work with Typing.Comparison
       if (typeName != null) {
         Object retCast = JSON.deserialize(
-          JSON.serialize(converted),
+          JSON.serialize(values),
           core.injector().getType('List<' + typeName + '>')
         );
         return retCast;
       }
 
-      return converted;
-    }
-
-    if (value instanceof String) {
-      String strValue = (String) value;
-
-      // Check if it's a datetime
-      if (
-        Pattern.matches(
-          '\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d{3})?(Z|[+\\-]\\d{2}:\\d{2})?',
-          strValue
-        )
-      ) {
-        return parseDatetime(strValue);
-      }
-
-      // Check if it's a date
-      if (Pattern.matches('\\d{4}-\\d{2}-\\d{2}', strValue)) {
-        return Date.valueOf(strValue);
-      }
-
-      // Check if it's a number
-      if (Pattern.matches('[+\\-]?\\d+\\.\\d+', strValue)) {
-        return Decimal.valueOf(strValue);
-      }
-      if (Pattern.matches('[+\\-]?\\d+', strValue)) {
-        return Integer.valueOf(strValue);
-      }
-
-      // It's a string
-      return strValue;
+      return values;
     }
 
     return value;
-  }
-
-  /**
-   * Parse datetime string with timezone support.
-   * Handles: YYYY-MM-DDTHH:mm:ss[.SSS][Z|±HH:mm]
-   */
-  private Datetime parseDatetime(String dtString) {
-    Matcher mat = Pattern.compile(
-        '(\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2})(\\.\\d{3})?(Z|[+\\-]\\d{2}:\\d{2})?'
-      )
-      .matcher(dtString);
-
-    if (mat.matches()) {
-      Datetime dt = Datetime.valueOfGmt(mat.group(1).replace('T', ' '));
-      Long ms = dt.getTime();
-
-      // Add milliseconds if present
-      if (mat.group(2) != null) {
-        ms += Integer.valueOf(mat.group(2).replace('.', ''));
-      }
-
-      // Handle timezone
-      if (mat.group(3) != null) {
-        if (mat.group(3) == 'Z') {
-          // UTC - adjust from user timezone
-          ms -= UserInfo.getTimeZone().getOffset(dt);
-        } else {
-          // Timezone offset ±HH:mm
-          List<String> parts = mat.group(3).split(':');
-          Integer hours = Integer.valueOf(parts[0]);
-          Integer minutes = Integer.valueOf(parts[1]);
-          Integer totalMinutes = hours * 60 + (hours < 0 ? -minutes : minutes);
-          ms -= (totalMinutes * 60 * 1000);
-        }
-      }
-
-      return Datetime.newInstance(ms);
-    }
-
-    throw new ParseException('Invalid datetime format: ' + dtString);
   }
 }

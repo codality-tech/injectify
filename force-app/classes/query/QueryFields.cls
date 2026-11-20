@@ -1,7 +1,8 @@
 /**
  * The SELECT list of a query. Fields come from the source object, from objects reached through
  * lookups (Account.Owner.Name), and from the possible targets of polymorphic lookups, which are
- * written as TYPEOF clauses. The source's Id is always selected.
+ * written as TYPEOF clauses. The few fields every target of a polymorphic lookup has (the Name
+ * object's: What.Type, Owner.Name) are written as plain paths. The source's Id is always selected.
  */
 public without sharing class QueryFields implements IQueryFields {
   private class GeneralException extends Exception {
@@ -49,6 +50,7 @@ public without sharing class QueryFields implements IQueryFields {
   }
 
   public String toSoql() {
+    checkOneReading();
     List<String> sections = new List<String>();
     for (String section : new List<String>{ pathFields().toSoql(), typeofFields().toSoql() }) {
       if (String.isNotBlank(section)) {
@@ -60,6 +62,7 @@ public without sharing class QueryFields implements IQueryFields {
 
   /** The SELECT list without the given fields of the source object. Id always stays. */
   public String toSoqlWithout(Set<SObjectField> leftOut) {
+    checkOneReading();
     List<String> sections = new List<String>();
     for (String section : new List<String>{ pathFields().render(leftOut), typeofFields().toSoql() }) {
       if (String.isNotBlank(section)) {
@@ -67,6 +70,28 @@ public without sharing class QueryFields implements IQueryFields {
       }
     }
     return String.join(sections, ', ');
+  }
+
+  // The platform refuses a SELECT that reads one polymorphic lookup both ways: a path through it
+  // (What.Type) beside TYPEOF on it.
+  private void checkOneReading() {
+    for (IPath typed : typeofFields().byPath.keySet()) {
+      List<SObjectField> lead = typed.fieldSequence();
+      for (IReference via : pathFields().selections.keySet()) {
+        List<SObjectField> walked = via.fieldSequence();
+        Boolean through = walked.size() >= lead.size();
+        for (Integer at = 0; through && at < lead.size(); at++) {
+          through = walked[at] == lead[at];
+        }
+        List<SObjectField> chosen = new List<SObjectField>(pathFields().selections.get(via).getFields());
+        if (through && !chosen.isEmpty()) {
+          throw new GeneralException(
+            'Cannot select ' + via.toSoql(chosen[0]) + ' beside TYPEOF ' + typed.describe().getRelationshipName() +
+              ': one SELECT reads a lookup as a path or with TYPEOF, not both'
+          );
+        }
+      }
+    }
   }
 
   public IQueryFields clearFields() {
@@ -79,8 +104,10 @@ public without sharing class QueryFields implements IQueryFields {
   public Set<IPath> getRoutes() {
     Set<IPath> routes = new Set<IPath>();
     for (IReference via : pathFields().selections.keySet()) {
-      if (via instanceof IPath) {
-        routes.add((IPath) via);
+      // Null for the source itself; the lookup path for a lookup, polymorphic or not
+      IPath route = via.toPath();
+      if (route != null) {
+        routes.add(route);
       }
     }
     routes.addAll(typeofFields().byPath.keySet());
@@ -160,6 +187,12 @@ public without sharing class QueryFields implements IQueryFields {
       pathFields().take(ref, checked(ref.target(), fields));
       return this;
     }
+    // Fields of the Name object are shared by every target, and are written as What.Type
+    Set<SObjectField> shared = fields.clone();
+    shared.retainAll(nameModel().fieldMap().values());
+    pathFields().takePaths(throughName(via, shared));
+    fields = fields.clone();
+    fields.removeAll(shared);
     // Only the targets that received a field get a WHEN branch.
     Map<SObjectType, ModelFields> byTarget = ModelFields.siftFieldsIntoAnchors(fields, new Set<SObjectType>(targets));
     for (ModelFields bucket : byTarget.values()) {
@@ -231,7 +264,8 @@ public without sharing class QueryFields implements IQueryFields {
 
   /**
    * Field names or dotted paths, from the source or from where `via` leads. Unknown names are
-   * skipped. A polymorphic lookup needs field tokens instead, since a name could fit any target.
+   * skipped. Through a polymorphic lookup the names are those of the Name object, which every
+   * target shares (Type, Name, Email...); a target's own fields need field tokens, for TYPEOF.
    */
   public IQueryFields doAdd(IPath via, Set<String> fieldNames) {
     if (via == null) {
@@ -239,7 +273,15 @@ public without sharing class QueryFields implements IQueryFields {
       return this;
     }
     if (targetsOf(via).size() > 1) {
-      throw new GeneralException(via + ' polymorphic foreign key unsupported');
+      Map<String, SObjectField> ofName = nameModel().fieldMap();
+      Set<SObjectField> shared = new Set<SObjectField>();
+      for (String name : fieldNames ?? new Set<String>()) {
+        if (ofName.containsKey(name)) {
+          shared.add(ofName.get(name));
+        }
+      }
+      pathFields().takePaths(throughName(via, shared));
+      return this;
     }
     QueryFields across = new QueryFields(via.toReference().target());
     across.pathFields().takeNames(fieldNames);
@@ -292,6 +334,22 @@ public without sharing class QueryFields implements IQueryFields {
       typeofFields().take(via, everything(target));
     }
     return this;
+  }
+
+  // The Name object: what the platform reads a polymorphic lookup through.
+  private IModel nameModel() {
+    return source.core().model(Schema.Name.SObjectType);
+  }
+
+  // Fields of the Name object as paths through a polymorphic lookup: What.Type, Owner.Name.
+  private Set<IPath> throughName(IPath lookupPath, Set<SObjectField> nameFields) {
+    Set<IPath> reached = new Set<IPath>();
+    for (SObjectField field : nameFields) {
+      List<SObjectField> steps = lookupPath.fieldSequence();
+      steps.add(field);
+      reached.add(source.path(steps, true, true));
+    }
+    return reached;
   }
 
   private static Map<IReference, Set<SObjectField>> groupByReference(Set<IPath> fieldPaths) {

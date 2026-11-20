@@ -719,4 +719,313 @@ private class AggregateQueryTest {
     Assert.areEqual('Energy', rows[0].get('Industry'));
     Assert.areEqual(2, rows[0].get('cnt'));
   }
+
+  // --- semi-joins and anti-joins ----------------------------------------------------------------
+
+  @IsTest
+  static void aSemiJoinInWhereSharesTheBindsOfTheAggregateQuery() {
+    MockScheme scheme = new MockScheme();
+    Core mocked = new Core(scheme);
+    IQuery innerQuery = QueryTest.contactsIn(mocked, 'Seattle');
+    IAggregateQuery q = mocked.model(Account.SObjectType).aggregateQuery();
+    q.aggregates().add(mocked.count(Account.Id));
+    q.groupBys().add(mocked.path(Account.Industry));
+    q.filters().add(mocked.eq(Account.Type, 'Customer'));
+    q.filters().add(mocked.iin(Account.Id, innerQuery));
+    q.havingFilters().add(mocked.gt(mocked.count(Account.Id), 0));
+
+    Assert.areEqual(
+      'SELECT Industry, COUNT(Id) Id_cnt FROM Account ' +
+        'WHERE (Type = \'Customer\' AND Id IN (SELECT AccountId FROM Contact WHERE (MailingCity = \'Seattle\'))) ' +
+        'GROUP BY Industry HAVING (COUNT(Id) > 0)',
+      q.toSoql()
+    );
+    String bound =
+      'SELECT Industry, COUNT(Id) Id_cnt FROM Account ' +
+      'WHERE (Type = :a0 AND Id IN (SELECT AccountId FROM Contact WHERE (MailingCity = :a1))) ' +
+      'GROUP BY Industry HAVING (COUNT(Id) > :a2)';
+    Assert.areEqual(bound, q.toSoql(true));
+
+    q.run();
+    IAggregateQuery copy = q.deepClone();
+    innerQuery.filters().add(mocked.eq(Contact.LastName, 'Smith'));
+
+    Assert.areEqual(bound, scheme.queries()[0]);
+    Assert.areEqual(new Map<String, Object>{ 'a0' => 'Customer', 'a1' => 'Seattle', 'a2' => 0 }, scheme.bindMaps()[0]);
+    Assert.areEqual(bound, copy.toSoql(true), 'a copy has an inner query of its own');
+    Assert.isTrue(q.toSoql().contains('Smith'), q.toSoql());
+  }
+
+  @IsTest
+  static void aSemiJoinAndAnAntiJoinFilterTheRowsAnAggregateCounts() {
+    Account energyWith = new Account(Name = 'E1', Industry = 'Energy');
+    Account bankingWith = new Account(Name = 'B1', Industry = 'Banking');
+    insert new List<Account>{
+      energyWith,
+      bankingWith,
+      new Account(Name = 'E2', Industry = 'Energy'),
+      new Account(Name = 'E3', Industry = 'Energy')
+    };
+    insert new List<Contact>{
+      new Contact(LastName = 'North', AccountId = energyWith.Id, MailingCity = 'Seattle'),
+      new Contact(LastName = 'South', AccountId = bankingWith.Id, MailingCity = 'Tacoma')
+    };
+
+    IAggregateQuery semi = Application.s.model(Account.SObjectType).aggregateQuery();
+    semi.aggregates().add(Application.s.count(Account.Id));
+    semi.groupBys().add(Application.s.path(Account.Industry));
+    semi.filters().add(Application.s.iin(Account.Id, QueryTest.contactsIn(Application.s, 'Seattle')));
+    List<AggregateResult> matched = semi.run();
+    Assert.areEqual(1, matched.size());
+    Assert.areEqual('Energy', matched[0].get('Industry'));
+    Assert.areEqual(1, matched[0].get('Id_cnt'));
+
+    IAggregateQuery anti = Application.s.model(Account.SObjectType).aggregateQuery();
+    anti.aggregates().add(Application.s.count(Account.Id));
+    anti.groupBys().add(Application.s.path(Account.Industry));
+    anti.filters().add(Application.s.nin(Account.Id, QueryTest.contactsIn(Application.s, 'Seattle')));
+    anti.orderings().add(Application.s.ordering(Account.Industry, true, false));
+    List<AggregateResult> others = anti.run();
+    Assert.areEqual(2, others.size());
+    Assert.areEqual('Banking', others[0].get('Industry'));
+    Assert.areEqual(1, others[0].get('Id_cnt'));
+    Assert.areEqual('Energy', others[1].get('Industry'));
+    Assert.areEqual(2, others[1].get('Id_cnt'));
+  }
+
+  @IsTest
+  static void havingTakesNoSemiJoin() {
+    IQuery owners = Application.s.model(User.SObjectType).query();
+    IAggregateQuery q = Application.s.model(Account.SObjectType).aggregateQuery();
+    q.aggregates().add(Application.s.count(Account.Id));
+    q.groupBys().add(Application.s.path(Account.OwnerId));
+    q.havingFilters().add(Application.s.iin(Account.OwnerId, owners));
+
+    for (Boolean binding : new List<Boolean>{ false, true }) {
+      try {
+        q.toSoql(binding);
+        Assert.fail('a semi-join was written into HAVING');
+      } catch (Filtering.ConditionException refused) {
+        Assert.areEqual('Cannot write a semi-join in HAVING: it belongs in filters()', refused.getMessage());
+      }
+    }
+    try {
+      q.run();
+      Assert.fail('a semi-join in HAVING was run');
+    } catch (Filtering.ConditionException refused) {
+      Assert.areEqual('Cannot write a semi-join in HAVING: it belongs in filters()', refused.getMessage());
+    }
+    try {
+      Application.s.iin(Application.s.count(Account.Id), owners);
+      Assert.fail('an aggregate function was matched against a query');
+    } catch (Filtering.ConditionException refused) {
+      Assert.areEqual('Cannot match COUNT(Id) against a query: HAVING takes no semi-join', refused.getMessage());
+    }
+  }
+
+  @IsTest
+  static void allRowsAndAScopeAreWrittenAndCarriedByACopy() {
+    IAggregateQuery q = Application.s.model(Account.SObjectType).aggregateQuery().setLimit(5).setOffset(1);
+    q.aggregates().add(Application.s.count(Account.Id));
+    q.groupBys().add(Application.s.path(Account.Industry));
+    q.filters().add(Application.s.eq(Account.Type, 'Customer'));
+    q.havingFilters().add(Application.s.gt(Application.s.count(Account.Id), 0));
+    q.orderings().add(Application.s.ordering(Account.Industry, true, false));
+
+    q.allRows(true).usingScope(Enums.FilterScope.MINE);
+    String expected =
+      'SELECT Industry, COUNT(Id) Id_cnt FROM Account USING SCOPE mine WHERE (Type = \'Customer\') GROUP BY Industry ' +
+      'HAVING (COUNT(Id) > 0) ORDER BY Industry ASC NULLS FIRST LIMIT 5 OFFSET 1 ALL ROWS';
+    Assert.areEqual(expected, q.toSoql());
+    Assert.areEqual(expected, q.deepClone().toSoql(), 'a copy carries them');
+
+    q.usingScope(Enums.FilterScope.SCOPING_RULE).allRows(null);
+    Assert.isTrue(q.toSoql().contains('FROM Account USING SCOPE scopingRule WHERE'), q.toSoql());
+    Assert.isFalse(q.toSoql().contains('ALL ROWS'), 'null is off');
+    Assert.isFalse(q.usingScope(null).toSoql().contains('USING SCOPE'), 'null is none');
+  }
+
+  @IsTest
+  static void allRowsCountsTheRecycleBinAndAScopeNarrowsTheCount() {
+    Account kept = new Account(Name = 'Kept', Industry = 'Energy');
+    Account binned = new Account(Name = 'Binned', Industry = 'Energy');
+    insert new List<Account>{ kept, binned };
+    delete binned;
+    IAggregateQuery q = Application.s.model(Account.SObjectType).aggregateQuery();
+    q.aggregates().add(Application.s.count(Account.Id));
+    q.groupBys().add(Application.s.path(Account.Industry));
+
+    Assert.areEqual(1, q.run()[0].get('Id_cnt'));
+    Assert.areEqual(2, q.allRows(true).run()[0].get('Id_cnt'), 'the deleted account is counted');
+    Assert.areEqual(2, q.usingScope(Enums.FilterScope.MINE).run()[0].get('Id_cnt'), 'the running user owns both');
+    Assert.areEqual(2, q.usingScope(Enums.FilterScope.EVERYTHING).run()[0].get('Id_cnt'));
+  }
+
+  @IsTest
+  static void aDateLiteralIsWrittenInWhereAndInHavingAndNeverBound() {
+    Account acme = new Account(Name = 'Acme');
+    insert acme;
+    insert new List<Opportunity>{
+      new Opportunity(Name = 'Soon', StageName = 'Prospecting', CloseDate = Date.today().addDays(3), AccountId = acme.Id, Amount = 10),
+      new Opportunity(Name = 'Later', StageName = 'Qualification', CloseDate = Date.today().addDays(500), AccountId = acme.Id, Amount = 20),
+      new Opportunity(Name = 'Long ago', StageName = 'Closed Lost', CloseDate = Date.today().addYears(-3), AccountId = acme.Id, Amount = 40)
+    };
+    IAggregateQuery q = Application.s.model(Opportunity.SObjectType).aggregateQuery();
+    q.aggregates().add(Application.s.max(Opportunity.CloseDate));
+    q.aggregates().add(Application.s.sum(Opportunity.Amount));
+    q.groupBys().add(Application.s.path(Opportunity.StageName));
+    q.filters().add(Application.s.ne(Opportunity.Name, 'Other'));
+    q.filters().add(Application.s.ge(Opportunity.CloseDate, DateLiteral.lastNYears(1)));
+    q.havingFilters().add(Application.s.le(Application.s.max(Opportunity.CloseDate), DateLiteral.nextNDays(30)));
+    q.havingFilters().add(Application.s.gt(Application.s.sum(Opportunity.Amount), 1));
+
+    Assert.areEqual(
+      'SELECT StageName, MAX(CloseDate) CloseDate_max, SUM(Amount) Amount_sum FROM Opportunity ' +
+        'WHERE (Name != :a0 AND CloseDate >= LAST_N_YEARS:1) GROUP BY StageName ' +
+        'HAVING (MAX(CloseDate) <= NEXT_N_DAYS:30 AND SUM(Amount) > :a1)',
+      q.toSoql(true)
+    );
+    Assert.isTrue(q.toSoql().contains('HAVING (MAX(CloseDate) <= NEXT_N_DAYS:30 AND SUM(Amount) > 1)'), q.toSoql());
+    List<AggregateResult> groups = q.run();
+    Assert.areEqual(1, groups.size(), 'one stage closes within thirty days; the old one was filtered out before grouping');
+    Assert.areEqual('Prospecting', groups[0].get('StageName'));
+    Assert.areEqual(10, groups[0].get('Amount_sum'));
+  }
+
+  @IsTest
+  static void rowsAreGroupedByAPathThroughAPolymorphicLookup() {
+    Account acme = new Account(Name = 'Acme');
+    insert acme;
+    insert new List<Task>{ new Task(Subject = 'one', WhatId = acme.Id), new Task(Subject = 'two', WhatId = acme.Id), new Task(Subject = 'none') };
+    IAggregateQuery q = Application.s.model(Task.SObjectType).aggregateQuery();
+    q.aggregates().add(Application.s.count(Task.Id));
+    q.groupBys().add(Application.s.model(Task.SObjectType).path('What.Type'));
+    q.filters().add(Application.s.ne('What.Type', null));
+
+    Assert.areEqual('SELECT What.Type, COUNT(Id) Id_cnt FROM Task WHERE (What.Type != null) GROUP BY What.Type', q.toSoql());
+    List<AggregateResult> groups = q.run();
+    Assert.areEqual(1, groups.size());
+    Assert.areEqual('Account', groups[0].get('Type'));
+    Assert.areEqual(2, groups[0].get('Id_cnt'));
+  }
+
+  @IsTest
+  static void aDateLiteralInHavingIsCheckedAsInWhere() {
+    IAggregateQuery q = Application.s.model(Opportunity.SObjectType).aggregateQuery();
+    q.aggregates().add(Application.s.max(Opportunity.CloseDate));
+    q.groupBys().add(Application.s.path(Opportunity.StageName));
+    ForeignLiteral foreign = new ForeignLiteral('next_n_days:30');
+    q.havingFilters().add(Application.s.le(Application.s.max(Opportunity.CloseDate), foreign));
+
+    Assert.isTrue(q.toSoql().endsWith('HAVING (MAX(CloseDate) <= NEXT_N_DAYS:30)'), 'a real literal is written as the framework writes it');
+    Assert.areEqual(0, q.run().size());
+
+    // Text of another class that is no date literal never reaches the SOQL, written or run
+    foreign.text = 'TODAY OR MAX(CloseDate) != null';
+    for (Boolean binding : new List<Boolean>{ false, true }) {
+      try {
+        q.toSoql(binding);
+        Assert.fail('text that is no date literal was written into HAVING');
+      } catch (IllegalArgumentException refused) {
+        Assert.areEqual('Not a SOQL date literal: TODAY OR MAX(CloseDate) != null', refused.getMessage());
+      }
+    }
+    try {
+      q.run();
+      Assert.fail('text that is no date literal was run in HAVING');
+    } catch (IllegalArgumentException refused) {
+      Assert.areEqual('Not a SOQL date literal: TODAY OR MAX(CloseDate) != null', refused.getMessage());
+    }
+
+    // HAVING compares with one value, so a list of literals is refused when the condition is built
+    try {
+      Application.s.eq(Application.s.max(Opportunity.CloseDate), new List<IDateLiteral>{ foreign });
+      Assert.fail('a list of date literals was compared with an aggregate function');
+    } catch (Filtering.ConditionException refused) {
+      Assert.areEqual('Cannot compare MAX(CloseDate) with a list of date literals: HAVING takes one', refused.getMessage());
+    }
+  }
+
+  @IsTest
+  static void aDateAgainstTheLatestDateTimeIsWrittenAsMidnightGmt() {
+    insert new Opportunity(Name = 'Now', StageName = 'Prospecting', CloseDate = Date.today());
+    Date longAgo = Date.newInstance(2020, 1, 15);
+    Map<Object, String> writtenByField = new Map<Object, String>{
+      Opportunity.CreatedDate => 'MAX(CreatedDate) > 2020-01-15T00:00:00.000Z',
+      'CreatedDate' => 'MAX(CreatedDate) > 2020-01-15T00:00:00.000Z',
+      Application.s.path(Opportunity.CreatedDate) => 'MAX(CreatedDate) > 2020-01-15T00:00:00.000Z',
+      Opportunity.CloseDate => 'MAX(CloseDate) > 2020-01-15'
+    };
+
+    for (Object field : writtenByField.keySet()) {
+      IAggregateQuery q = Application.s.model(Opportunity.SObjectType).aggregateQuery();
+      q.aggregates().add(Application.s.count(Opportunity.Id));
+      q.groupBys().add(Application.s.path(Opportunity.StageName));
+      q.havingFilters().add(Application.s.gt(Application.s.max(field), longAgo));
+
+      Assert.isTrue(q.toSoql().endsWith('HAVING (' + writtenByField.get(field) + ')'), q.toSoql());
+      Assert.areEqual(1, Database.query(q.toSoql()).size(), 'the platform takes what is written: ' + q.toSoql());
+      Assert.areEqual(1, q.run().size(), 'and the bound date gives the same groups');
+    }
+  }
+
+  @IsTest
+  static void groupsWithNothingInThemAreConstantsInWhereAndInHaving() {
+    insert new List<Account>{ new Account(Name = 'A', Industry = 'Energy'), new Account(Name = 'B', Industry = 'Retail') };
+    IAggregateQuery q = Application.s.model(Account.SObjectType).aggregateQuery();
+    q.aggregates().add(Application.s.count(Account.Id));
+    q.groupBys().add(Application.s.path(Account.Industry));
+    q.filters().add(Application.s.all(new List<ICondition>()));
+    q.havingFilters().add(Application.s.any(new List<ICondition>()));
+    String never =
+      'SELECT Industry, COUNT(Id) Id_cnt FROM Account WHERE ((Id = null OR Id != null)) GROUP BY Industry ' +
+      'HAVING ((COUNT(Id) = null AND COUNT(Id) != null))';
+
+    Assert.areEqual(never, q.toSoql(), 'HAVING takes no bare field, so its constant is written on COUNT(Id)');
+    Assert.areEqual(never, q.toSoql(true));
+    Assert.areEqual(0, q.run().size(), 'an empty OR in HAVING keeps no group');
+
+    q.havingFilters().clear().add(Application.s.all(new List<ICondition>()));
+    Assert.isTrue(q.toSoql().endsWith('HAVING ((COUNT(Id) = null OR COUNT(Id) != null))'), q.toSoql());
+    Assert.areEqual(2, q.run().size(), 'an empty AND keeps them all');
+
+    q.filters().clear().add(Application.s.any(new List<ICondition>()));
+    Assert.areEqual(0, q.run().size(), 'an empty OR in WHERE keeps no row');
+
+    IAggregateQuery untouched = Application.s.model(Account.SObjectType).aggregateQuery();
+    untouched.aggregates().add(Application.s.count(Account.Id));
+    Assert.areEqual('SELECT COUNT(Id) Id_cnt FROM Account', untouched.toSoql(), 'the roots themselves, when empty, write no clause');
+  }
+
+  @IsTest
+  static void anAggregateIsNotOrderedAgainstNull() {
+    IAggregateQuery q = Application.s.model(Opportunity.SObjectType).aggregateQuery();
+    q.aggregates().add(Application.s.sum(Opportunity.Amount));
+    q.groupBys().add(Application.s.path(Opportunity.StageName));
+    q.havingFilters().add(Application.s.gt(Application.s.sum(Opportunity.Amount), null));
+
+    for (Boolean binding : new List<Boolean>{ false, true }) {
+      try {
+        q.toSoql(binding);
+        Assert.fail('an aggregate was ordered against null');
+      } catch (Filtering.ConditionException refused) {
+        Assert.areEqual('Cannot compare SUM(Amount) with null by GT: null goes with EQ and NE', refused.getMessage());
+      }
+    }
+    q.havingFilters().clear().add(Application.s.ne(Application.s.sum(Opportunity.Amount), null));
+    Assert.isTrue(q.toSoql().endsWith('HAVING (SUM(Amount) != null)'), q.toSoql());
+    Assert.areEqual(0, q.run().size());
+  }
+
+  private class ForeignLiteral implements IDateLiteral {
+    private String text;
+
+    private ForeignLiteral(String text) {
+      this.text = text;
+    }
+
+    public String toSoql() {
+      return text;
+    }
+  }
 }

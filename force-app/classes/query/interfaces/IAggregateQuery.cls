@@ -35,6 +35,12 @@ global interface IAggregateQuery {
   //* Sharing
   IAggregateQuery withSharing(Boolean enforceSharing);
 
+  //* ALL ROWS: deleted and archived records are counted as well
+  IAggregateQuery allRows(Boolean include);
+
+  //* USING SCOPE: only the records in the scope; null for none
+  IAggregateQuery usingScope(Enums.FilterScope scope);
+
   //* Output
   String toSoql();
   String toSoql(Boolean binding);

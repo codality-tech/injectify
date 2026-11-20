@@ -65,8 +65,14 @@ Inline SOQL and DML are right in three places only:
 1. **Tests**, to set records up and to check what the code saved. A test that asserts with the
    framework's own query is checking the framework with itself.
 2. **A scheme class** (`inj.IScheme`): that is where the framework's queries are executed.
-3. **A query the framework cannot express.** Today that is a semi-join
-   (`WHERE Id IN (SELECT ...)`). Write it inline with a comment that says why.
+3. **A query the framework cannot express.** Write it inline with a comment that says why. In
+   versions after 0.3.0 these are not among them (see the query guide):
+   - a semi-join: `App.s.iin(Account.Id, contactQuery)` writes `Id IN (SELECT AccountId FROM Contact ...)`;
+   - a date literal: `App.s.ge(Account.CreatedDate, inj.DateLiteral.lastNDays(30))` writes
+     `CreatedDate >= LAST_N_DAYS:30`;
+   - `ALL ROWS`, `USING SCOPE`, `FOR VIEW` and `FOR REFERENCE`: `allRows(true)`,
+     `usingScope(inj.Enums.FilterScope.MINE)`, `forView(true)`, `forReference(true)`;
+   - a filter on what a polymorphic lookup points at: `App.s.eq('What.Type', 'Account')`.
 
 Fields and conditions reach through lookups without falling back to SOQL text:
 `q.fields().add(Contact.AccountId, new Set<SObjectField>{ Account.Name })` selects `Account.Name`,
@@ -103,6 +109,22 @@ List<Account> rows = (List<Account>) q.run();
   default field set, or the registered class's `getDefaultFields()`.
 - Conditions: `eq ne lt le gt ge lk iin nin inc exc`, combined with `all`, `any`, `neg`. A model
   also parses text: `App.s.model(Account.SObjectType).parseCondition('Industry = \'Energy\'')`.
+- `neg(c)` reverses `c` itself and returns it, so a second `neg` on the same condition undoes the
+  first. An empty `any` matches nothing and an empty `all` everything, in a query and in memory.
+  Compare with `null` by `eq` and `ne` only: a query refuses `null` with `lt le gt ge lk`.
+- A date literal is a value, not text: `inj.DateLiteral.thisWeek()`, `inj.DateLiteral.lastNDays(30)`,
+  `inj.DateLiteral.of('NEXT_N_FISCAL_QUARTERS:2')`. It goes with `eq ne lt le gt ge` on a date or
+  date-time field, and as a `List<inj.IDateLiteral>` with `iin` and `nin`.
+- `What.Type`, `Owner.Name` and the other fields every target of a polymorphic lookup has are
+  paths: `App.s.eq('What.Type', 'Account')`, `q.fields().add(new Set<String>{ 'What.Name' })`.
+  A field of one target (`What.Industry`) needs `TYPEOF`: `q.fields().add(Task.WhatId, fields)`.
+  One SELECT reads a lookup one way: `What.Type` beside `TYPEOF What` is refused, while a filter on
+  `What.Type` beside it is fine.
+- `usingScope(...)`: use only a scope you know the object supports. For any other the platform
+  ends the transaction with an error that cannot be caught.
+- `evaluate` answers as SOQL does, including for empty fields: an empty number or date is neither
+  above nor below a value, also under `neg`. The query guide lists the few places where a condition
+  in memory and the same condition in a query differ.
 - `run()`, `fetch()`, `count()` and `toLocator()` bind values. `toSoql()` writes them inline for
   logs and assertions; never execute its output with values from a user.
 - System mode is the default. `withSharing(true)` is user mode: sharing, object and field

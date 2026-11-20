@@ -162,13 +162,15 @@ public virtual class Core implements ICore {
     return filtering.fieldCondition(Enums.Comparator.EXC, lhs, rhs);
   }
 
-  // Negation method
+  // Negation method: flips the condition it is given and returns it, so a second neg undoes the first
   public ICondition neg(ICondition condition) {
     // Cast to implementation types to call setNegated (not in interface)
     if (condition instanceof Filtering.LogicalCondition) {
-      ((Filtering.LogicalCondition) condition).setNegated(true);
+      Filtering.LogicalCondition branch = (Filtering.LogicalCondition) condition;
+      branch.setNegated(!branch.isNegated());
     } else if (condition instanceof Filtering.FieldCondition) {
-      ((Filtering.FieldCondition) condition).setNegated(true);
+      Filtering.FieldCondition leaf = (Filtering.FieldCondition) condition;
+      leaf.setNegated(!leaf.isNegated());
     }
     return condition;
   }

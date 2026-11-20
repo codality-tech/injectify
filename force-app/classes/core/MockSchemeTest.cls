@@ -46,6 +46,39 @@ private class MockSchemeTest {
   }
 
   @IsTest
+  static void aSemiJoinIsMockedByItsOuterObject() {
+    MockScheme scheme = new MockScheme()
+      .returning(Account.SObjectType, cannedAccounts())
+      .returning(Contact.SObjectType, new List<Contact>{ new Contact(LastName = 'Inner') });
+    Core mocked = new Core(scheme);
+    IQuery innerQuery = mocked.model(Contact.SObjectType).query();
+    innerQuery.fields().add(new Set<SObjectField>{ Contact.AccountId });
+    innerQuery.filters().add(mocked.eq(Contact.MailingCity, 'Seattle'));
+    IQuery outerQuery = mocked.model(Account.SObjectType).query();
+    outerQuery.filters().add(mocked.eq(Account.Industry, 'Energy'));
+    outerQuery.filters().add(mocked.iin(Account.Id, innerQuery));
+    outerQuery.filters().add(mocked.ne(Account.Name, 'Initech'));
+
+    List<SObject> found = outerQuery.run();
+    Integer counted = outerQuery.count();
+
+    String filter = ' FROM Account WHERE (Industry = :a0 AND Id IN (SELECT AccountId FROM Contact WHERE (MailingCity = :a1)) AND Name != :a2)';
+    Assert.areEqual(2, found.size(), 'the rows of the outer object, not the one contact');
+    Assert.isInstanceOfType(found, List<Account>.class);
+    Assert.areEqual(2, counted);
+    Assert.areEqual(new List<String>{ 'SELECT Id' + filter, 'SELECT COUNT()' + filter }, scheme.queries());
+    Map<String, Object> expected = new Map<String, Object>{ 'a0' => 'Energy', 'a1' => 'Seattle', 'a2' => 'Initech' };
+    Assert.areEqual(expected, scheme.bindMaps()[0], 'the inner value is bound with the outer ones');
+    Assert.areEqual(expected, scheme.bindMaps()[1]);
+    Assert.areEqual(
+      'Account',
+      MockScheme.outerObject(
+        'SELECT Id, (SELECT Id FROM Contacts WHERE (Id IN (SELECT ContactId FROM Case))) FROM Account WHERE (Id NOT IN (SELECT AccountId FROM Opportunity))'
+      )
+    );
+  }
+
+  @IsTest
   static void unregisteredObjectsCountsAndAggregates() {
     MockScheme scheme = new MockScheme().returning(Account.SObjectType, cannedAccounts());
     Core mocked = new Core(scheme);
@@ -118,5 +151,50 @@ private class MockSchemeTest {
     );
     Assert.areEqual(new List<String>{ 'Lead' }, MockScheme.returningObjects('FIND {x} RETURNING Lead LIMIT 5'));
     Assert.isTrue(MockScheme.returningObjects('FIND {x}').isEmpty());
+  }
+
+  @IsTest
+  static void aQueryWithOptionsStillFindsItsObject() {
+    List<Account> canned = cannedAccounts();
+    MockScheme scheme = new MockScheme().returning(Account.SObjectType, canned);
+    Core mocked = new Core(scheme);
+    IQuery q = mocked.model(Account.SObjectType).query().usingScope(Enums.FilterScope.MINE).allRows(true).forView(true).setLimit(5);
+    q.filters().add(mocked.eq(Account.Name, 'Acme'));
+    q.filters().add(mocked.ge(Account.CreatedDate, DateLiteral.lastNDays(7)));
+    IAggregateQuery counted = mocked.model(Account.SObjectType).aggregateQuery().usingScope(Enums.FilterScope.TEAM).allRows(true);
+    counted.aggregates().add(mocked.count(Account.Id));
+
+    Assert.areEqual(canned, q.run(), 'the rows registered for Account');
+    Assert.areEqual(2, q.count());
+    Assert.isTrue(counted.run().isEmpty(), 'an aggregate query returns no rows from a mock');
+
+    Assert.areEqual(
+      'SELECT Id FROM Account USING SCOPE mine WHERE (Name = :a0 AND CreatedDate >= LAST_N_DAYS:7) LIMIT 5 FOR VIEW ALL ROWS',
+      scheme.queries()[0]
+    );
+    Assert.areEqual(new Map<String, Object>{ 'a0' => 'Acme' }, scheme.bindMaps()[0], 'the date literal is in the text, not among the binds');
+    Assert.areEqual('SELECT COUNT() FROM Account USING SCOPE mine WHERE (Name = :a0 AND CreatedDate >= LAST_N_DAYS:7) ALL ROWS', scheme.queries()[1]);
+    Assert.areEqual('SELECT COUNT(Id) Id_cnt FROM Account USING SCOPE team ALL ROWS', scheme.queries()[2]);
+    Assert.areEqual('Account', MockScheme.outerObject('SELECT Id FROM Account USING SCOPE mine ALL ROWS'));
+  }
+
+  @IsTest
+  static void aQueryThroughAPolymorphicLookupReturnsTheRowsOfItsObject() {
+    Task canned = (Task) JSON.deserialize(
+      '{"attributes":{"type":"Task"},"Subject":"Call","What":{"attributes":{"type":"Name"},"Type":"Account","Name":"Acme"}}',
+      Task.class
+    );
+    MockScheme scheme = new MockScheme().returning(Task.SObjectType, new List<Task>{ canned });
+    Core mocked = new Core(scheme);
+    IQuery q = mocked.model(Task.SObjectType).query();
+    q.fields().add(new Set<String>{ 'What.Type', 'What.Name' });
+    ICondition aboutAccounts = mocked.eq('What.Type', 'Account');
+    q.filters().add(aboutAccounts);
+
+    List<Task> found = (List<Task>) q.run();
+
+    Assert.areEqual('SELECT Id, What.Type, What.Name FROM Task WHERE (What.Type = :a0)', scheme.queries()[0]);
+    Assert.areEqual(1, found.size());
+    Assert.isTrue(aboutAccounts.evaluate(found[0]), 'a canned row answers the condition in memory');
   }
 }

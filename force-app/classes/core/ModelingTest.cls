@@ -307,4 +307,162 @@ private class ModelingTest {
       Assert.isTrue(expected.getMessage().contains('leads nowhere'), expected.getMessage());
     }
   }
+
+  // Paths through a polymorphic lookup
+
+  @IsTest
+  static void aPathGoesThroughAPolymorphicLookupToTheFieldsEveryTargetHas() {
+    Modeling.Model tasks = modelOf(Task.SObjectType);
+    Modeling.Path whatType = tasks.path('What.Type');
+    Modeling.Path sameByFields = (Modeling.Path) core.path(new List<SObjectField>{ Task.WhatId, Schema.Name.Type });
+    Modeling.Path ownerProfile = modelOf(Case.SObjectType).path('Owner.Profile.Name');
+    Modeling.Path throughParent = modelOf(CaseComment.SObjectType).path('Parent.Owner.Name');
+
+    Assert.areEqual('What.Type', whatType.name());
+    Assert.areEqual(whatType, sameByFields, 'by name or by field tokens, the same path');
+    Assert.areEqual(new List<SObjectField>{ Task.WhatId, Schema.Name.Type }, whatType.fieldSequence());
+    Assert.areEqual(2, whatType.size());
+    Assert.areEqual(Schema.Name.Type, whatType.terminus());
+    Assert.areEqual(SoapType.STRING, whatType.describe().getSoapType());
+    Assert.areEqual(Task.SObjectType, whatType.source().token());
+    Assert.areEqual(Task.WhatId.getDescribe().getLabel() + '.' + Schema.Name.Type.getDescribe().getLabel(), whatType.label());
+    Assert.areEqual('Task:What.Type', whatType.toString());
+
+    Assert.areEqual('Owner.Profile.Name', ownerProfile.name(), 'the Name object has lookups of its own');
+    Assert.areEqual(new List<SObjectField>{ Case.OwnerId, Schema.Name.ProfileId, Profile.Name }, ownerProfile.fieldSequence());
+    Assert.areEqual('Parent.Owner.Name', throughParent.name(), 'after an ordinary lookup too');
+    Assert.areEqual('Owner.Type', modelOf(Case.SObjectType).path('OwnerId.Type').name(), 'the lookup field names its relationship');
+  }
+
+  @IsTest
+  static void theFarSideOfAPolymorphicLookupIsTheNameObject() {
+    Modeling.PolyPath what = (Modeling.PolyPath) core.path(Task.WhatId);
+    Modeling.NameReference beyond = what.nameReference();
+    IReference fromThePath = core.model(Task.SObjectType).path('What.Name').reference();
+
+    Assert.areEqual(Schema.Name.SObjectType, beyond.target().token());
+    Assert.areEqual(Task.SObjectType, beyond.source().token());
+    Assert.areEqual(new List<SObjectField>{ Task.WhatId }, beyond.fieldSequence());
+    Assert.areEqual(1, beyond.size());
+    Assert.isTrue(beyond.toPath() === what);
+    Assert.areEqual('What.Email', beyond.toSoql(Schema.Name.Email));
+    Assert.areEqual('What.Title', beyond.path(Schema.Name.Title).name());
+    Assert.areEqual('What.Phone', beyond.path('Phone', true, true).name());
+    Assert.areEqual('What.RecordType', ((ILookupPath) beyond.getReference('RecordType')).relationshipName());
+    Assert.areEqual(beyond, fromThePath, 'one reference per lookup');
+    Assert.areEqual(1, new Set<IReference>{ beyond, fromThePath, core.model(Task.SObjectType).getReference(beyond) }.size());
+    Assert.areNotEqual(beyond, ((Modeling.PolyPath) core.path(Task.WhoId)).nameReference());
+    Assert.areEqual('Task:WhatId:Name', beyond.toString());
+    Assert.isNull(core.model(Task.SObjectType).getReference('What'), 'the lookup itself is still not a reference');
+  }
+
+  @IsTest
+  static void aFieldOfOneTargetDoesNotFollowAPolymorphicLookup() {
+    Modeling.Model tasks = modelOf(Task.SObjectType);
+
+    Assert.isNull(tasks.path('What.Industry'), 'Industry is a field of Account, not of the Name object');
+    Assert.isNull(core.path(new List<SObjectField>{ Task.WhatId, Account.Industry }));
+    Assert.isNull(modelOf(Contact.SObjectType).path('Account.Owner.Type'), 'Account.Owner is a user, and a user has no Type');
+    try {
+      tasks.path('What.Industry', true, true);
+      Assert.fail('What.Industry');
+    } catch (Modeling.PathException expected) {
+      Assert.areEqual(
+        'Cannot follow What.Industry from Task: What can point at several objects, and Industry is not a field of them all',
+        expected.getMessage()
+      );
+    }
+    try {
+      tasks.path('What.Wobbegong.Name', true, true);
+      Assert.fail('What.Wobbegong.Name');
+    } catch (Modeling.PathException expected) {
+      Assert.isTrue(expected.getMessage().endsWith('Wobbegong is not a field of them all'), expected.getMessage());
+    }
+  }
+
+  @IsTest
+  static void aPathThroughAPolymorphicLookupReadsWhatTheRecordCarries() {
+    IPath whatType = core.model(Task.SObjectType).path('What.Type');
+    IPath whatName = core.model(Task.SObjectType).path('What.Name');
+    IPath whatEmail = core.model(Task.SObjectType).path('What.Email');
+    IPath whatId = core.model(Task.SObjectType).path('What.Id');
+    Id accountId = IdUtil.generateId(Account.SObjectType);
+
+    // As a query returns it: a row of the Name object
+    Task queried = (Task) JSON.deserialize(
+      '{"attributes":{"type":"Task"},"WhatId":"' + accountId + '","What":{"attributes":{"type":"Name"},"Type":"Account","Name":"Acme"}}',
+      Task.class
+    );
+    Assert.areEqual('Account', whatType.getFieldValue(queried));
+    Assert.areEqual('Acme', whatName.getFieldValue(queried));
+
+    // As TYPEOF returns it, or as code puts it there: a row of the target itself
+    Task built = new Task(Subject = 'Call');
+    built.putSObject('What', new Account(Name = 'Built'));
+    Assert.areEqual('Account', whatType.getFieldValue(built), 'the type of the row');
+    Assert.areEqual('Built', whatName.getFieldValue(built), 'a field the row has under the same name');
+    Assert.isNull(whatEmail.getFieldValue(built), 'a field an account does not have');
+
+    // With the Id alone: the type and the Id can be told, nothing else
+    Task bare = new Task(WhatId = accountId);
+    Assert.areEqual('Account', whatType.getFieldValue(bare));
+    Assert.areEqual(accountId, whatId.getFieldValue(bare));
+    Assert.isNull(whatName.getFieldValue(bare));
+
+    // With nothing
+    Assert.isNull(whatType.getFieldValue(new Task()));
+    Assert.isNull(whatId.getFieldValue(new Task()));
+  }
+
+  @IsTest
+  static void aGroupOfAnyKindIsCalledQueueAsSoqlCallsIt() {
+    IPath ownerType = core.model(Case.SObjectType).path('Owner.Type');
+    Id groupId = IdUtil.generateId(Group.SObjectType);
+    Case queued = new Case(OwnerId = groupId);
+    queued.putSObject('Owner', new Group(Type = 'Queue'));
+    Case grouped = new Case(OwnerId = groupId);
+    grouped.putSObject('Owner', new Group(Type = 'Regular'));
+
+    Assert.areEqual('Queue', ownerType.getFieldValue(queued));
+    Assert.areEqual('Queue', ownerType.getFieldValue(grouped), 'a regular group is Queue in SOQL too');
+    Assert.areEqual('Queue', ownerType.getFieldValue(new Case(OwnerId = groupId)), 'so the Id alone tells it');
+    Assert.areEqual('User', ownerType.getFieldValue(new Case(OwnerId = UserInfo.getUserId())));
+  }
+
+  @IsTest
+  static void aPathGoesOnThroughARowOfTheTargetItself() {
+    IPath profileName = core.model(Case.SObjectType).path('Owner.Profile.Name');
+    User owner = new User(LastName = 'Owner');
+    owner.putSObject('Profile', (Profile) JSON.deserialize('{"attributes":{"type":"Profile"},"Name":"Standard User"}', Profile.class));
+    Case owned = new Case(Subject = 'owned');
+    owned.putSObject('Owner', owner);
+    Case profileNotLoaded = new Case(Subject = 'owner without a profile');
+    profileNotLoaded.putSObject('Owner', new User(LastName = 'Owner'));
+    Case queued = new Case(Subject = 'queued');
+    queued.putSObject('Owner', new Group(Name = 'Support'));
+    Case queried = (Case) JSON.deserialize(
+      '{"attributes":{"type":"Case"},"Owner":{"attributes":{"type":"Name"},"Profile":{"attributes":{"type":"Profile"},"Name":"Standard User"}}}',
+      Case.class
+    );
+
+    Assert.areEqual('Standard User', profileName.getFieldValue(owned), 'the user row has the lookup under the same name');
+    Assert.isTrue(core.eq('Owner.Profile.Name', 'standard user').evaluate(owned));
+    Assert.areEqual('Standard User', profileName.getFieldValue(queried), 'as a query returns it, through the Name row');
+    Assert.isNull(profileName.getFieldValue(profileNotLoaded));
+    Assert.isNull(profileName.getFieldValue(queued), 'a group has no profile');
+    Assert.isNull(profileName.getFieldValue(new Case(OwnerId = UserInfo.getUserId())), 'nothing is loaded');
+  }
+
+  @IsTest
+  static void anOrderingSortsByAPathThroughAPolymorphicLookup() {
+    Id accountId = IdUtil.generateId(Account.SObjectType);
+    Id opportunityId = IdUtil.generateId(Opportunity.SObjectType);
+    List<Task> rows = new List<Task>{ new Task(Subject = 'deal', WhatId = opportunityId), new Task(Subject = 'none'), new Task(Subject = 'account', WhatId = accountId) };
+    IOrdering byType = core.ordering('What.Type', true, true);
+
+    byType.apply(rows);
+
+    Assert.areEqual('What.Type ASC NULLS LAST', byType.toSoql());
+    Assert.areEqual(new List<String>{ 'account', 'deal', 'none' }, new List<String>{ rows[0].Subject, rows[1].Subject, rows[2].Subject });
+  }
 }

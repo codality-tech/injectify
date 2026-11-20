@@ -33,6 +33,13 @@ public class Filtering {
    * `left` names the field: an IPath, IReference, SObjectField, List<SObjectField> (a path across
    * lookups), a field name (resolved once the condition is realized), or an IAggregateFunction
    * for HAVING clauses.
+   *
+   * `right` is the value. With IN or NOT IN it may be an IQuery instead of a list or set: a
+   * semi-join or anti-join, written as Field IN (SELECT ... FROM ...). `left` is then an Id or
+   * lookup field, and the query selects the one Id or lookup field to match it against.
+   *
+   * On a date or date-time field it may be a date literal (DateLiteral.lastNDays(30)), or with IN
+   * and NOT IN a List<IDateLiteral>. It is written into the SOQL as it is, and never bound.
    */
   public FieldCondition fieldCondition(Enums.Comparator kind, Object left, Object right, Boolean inverted) {
     return new FieldCondition(null, left, kind, right, inverted, this);
@@ -95,6 +102,10 @@ public class Filtering {
 
     public void setNegated(Boolean inverted) {
       negated = inverted;
+    }
+
+    public Boolean isNegated() {
+      return negated == true;
     }
 
     /** Ignores null. Once the branch is realized, the member is realized to match. */
@@ -164,6 +175,16 @@ public class Filtering {
 
     /** Tests the record in memory. An empty AND holds; an empty OR does not. */
     public Boolean evaluate(SObject candidate) {
+      return test(candidate) == true;
+    }
+
+    /**
+     * The test with SOQL's third answer. Null means "unknown": SOQL cannot say whether an empty
+     * number or date is greater than a value, and leaves such a row out even under NOT. An AND is
+     * unknown when no member fails and one is unknown; an OR, when no member holds and one is
+     * unknown; and NOT leaves unknown as it is.
+     */
+    public Boolean test(SObject candidate) {
       if (candidate == null) {
         throw new ConditionException('Cannot evaluate null record: there is nothing to test');
       }
@@ -174,15 +195,25 @@ public class Filtering {
       }
       Boolean seekingAny = disjunction == true;
       Boolean outcome = !seekingAny;
+      Boolean unknown = false;
       for (Integer at = 0; at < members.size() && outcome != seekingAny; at++) {
-        if (members[at].evaluate(candidate) == seekingAny) {
+        Boolean answer = testMember(members[at], candidate);
+        if (answer == null) {
+          unknown = true;
+        } else if (answer == seekingAny) {
           outcome = seekingAny;
         }
+      }
+      if (unknown && outcome != seekingAny) {
+        return null;
       }
       return negated == true ? !outcome : outcome;
     }
 
-    /** The branch as format markup, e.g. ({0} AND ({1} OR {2})); null when it has no leaves. */
+    /**
+     * The branch as format markup, e.g. ({0} AND ({1} OR {2})). A branch with nothing in it is
+     * written as a constant test: an empty AND always holds, and an empty OR never does.
+     */
     public String compile(IConditionCompilation compilation) {
       String joiner = disjunction == true ? ' OR ' : ' AND ';
       String grouped = '';
@@ -193,9 +224,10 @@ public class Filtering {
         }
       }
       if (grouped == '') {
-        return null;
+        grouped = ((ConditionCompilation) compilation).constant(disjunction != true);
+      } else {
+        grouped = '(' + grouped + ')';
       }
-      grouped = '(' + grouped + ')';
       return negated == true ? '(NOT ' + grouped + ')' : grouped;
     }
 
@@ -230,6 +262,10 @@ public class Filtering {
     private String pendingPath;
     private IAggregateFunction aggregate;
     private SObjectType boundType;
+    // A semi-join or anti-join: the query on the right, and the field on the left. The field is
+    // held here because a Comparison types a value, and a query is not one.
+    private IQuery innerQuery;
+    private IPath joinPath;
 
     private FieldCondition(
       SObjectType boundTo,
@@ -249,7 +285,21 @@ public class Filtering {
       this.kind = kind;
       operand = right;
       negated = inverted;
+      if (right instanceof IQuery) {
+        if (kind != Enums.Comparator.IIN && kind != Enums.Comparator.NIN) {
+          throw new ConditionException(
+            'A query can be the value of IN or NOT IN only (a semi-join or anti-join), not of ' + kind
+          );
+        }
+        if (left instanceof IAggregateFunction) {
+          throw new ConditionException('Cannot match ' + left + ' against a query: HAVING takes no semi-join');
+        }
+        innerQuery = (IQuery) right;
+      }
       if (left instanceof IAggregateFunction) {
+        if (right instanceof List<IDateLiteral>) {
+          throw new ConditionException('Cannot compare ' + left + ' with a list of date literals: HAVING takes one');
+        }
         aggregate = (IAggregateFunction) left;
         return;
       }
@@ -283,14 +333,31 @@ public class Filtering {
     }
 
     private void bind(IPath fieldPath) {
-      comparison = Typing.comparison(fieldPath, kind, operand);
+      hold(fieldPath);
       realize(fieldPath.source().token());
+    }
+
+    // Takes the field: as a typed comparison with the value, or as the left side of a semi-join.
+    // The value is then the one the comparison holds, which is what a query binds.
+    private void hold(IPath fieldPath) {
+      if (innerQuery == null) {
+        comparison = Typing.comparison(fieldPath, kind, operand);
+        operand = comparison.value();
+        return;
+      }
+      if (fieldPath.describe().getSoapType() != SoapType.ID) {
+        throw new ConditionException(
+          fieldPath.name() + ' is not an Id or lookup field, so it cannot be matched against a query (a semi-join)'
+        );
+      }
+      joinPath = fieldPath;
     }
 
     public Boolean isAggregateCondition() {
       return aggregate != null;
     }
 
+    /** The right-hand value; for a semi-join or anti-join, the inner IQuery. */
     public Object value() {
       return operand;
     }
@@ -300,6 +367,9 @@ public class Filtering {
     }
 
     public IPath path() {
+      if (innerQuery != null) {
+        return joinPath;
+      }
       return comparison == null ? null : comparison.path();
     }
 
@@ -312,14 +382,30 @@ public class Filtering {
       negated = inverted;
     }
 
-    /** Leaves hold no members, so a shallow copy is complete. */
-    public FieldCondition clone(Boolean deep) {
-      return clone();
+    public Boolean isNegated() {
+      return negated == true;
     }
 
-    /** Resolves a pending field name against the type, or checks the bound type matches. */
+    /**
+     * A leaf holds no members, so a shallow copy is complete, but for one thing: a deep copy of a
+     * semi-join copies its inner query too, so the copy's query can change without the original's.
+     */
+    public FieldCondition clone(Boolean deep) {
+      FieldCondition copy = clone();
+      if (deep == true && innerQuery != null) {
+        copy.innerQuery = innerQuery.deepClone();
+        copy.operand = copy.innerQuery;
+      }
+      return copy;
+    }
+
+    /**
+     * Resolves a pending field name against the type, or checks the bound type matches. An
+     * aggregate function only notes the type, to tell what kind of field it is over.
+     */
     public void realize(SObjectType target) {
       if (aggregate != null) {
+        boundType = target ?? boundType;
         return;
       }
       if (target == null) {
@@ -328,27 +414,42 @@ public class Filtering {
       if (target == boundType) {
         return;
       }
-      if (comparison != null) {
+      if (path() != null) {
         SObjectType current = source().token();
         if (target != current) {
           throw new RealizeException(target, current);
         }
       } else {
-        IPath fieldPath = owner.core.model(target).path(pendingPath, true, true);
-        comparison = Typing.comparison(fieldPath, kind, operand);
+        hold(owner.core.model(target).path(pendingPath, true, true));
       }
       boundType = target;
     }
 
     public Boolean evaluate(SObject candidate) {
+      return test(candidate) == true;
+    }
+
+    /**
+     * The test with SOQL's third answer: null when SOQL cannot say, and so leaves the row out
+     * whether or not the condition is negated. That is the case for an empty number, date,
+     * date-time or time compared with <, <=, > or >=, and for an empty date compared with a date
+     * literal by anything but !=.
+     */
+    public Boolean test(SObject candidate) {
       if (aggregate != null) {
         throw new ConditionException('Cannot evaluate aggregate function conditions in-memory');
+      }
+      if (innerQuery != null) {
+        throw new ConditionException('Cannot evaluate a semi-join in memory: its inner query has not been run');
       }
       if (candidate == null) {
         throw new ConditionException('Cannot evaluate null record: there is nothing to test');
       }
       realize(candidate.getSObjectType());
       Boolean holds = comparison.evaluate(candidate);
+      if (holds == null) {
+        return null;
+      }
       return negated == true ? !holds : holds;
     }
 
@@ -372,39 +473,81 @@ public class Filtering {
       return new FieldCondition(null, via.path(path()), kind, operand, negated, owner);
     }
 
-    /** The condition with the given text (such as a bind variable) as its value. */
+    /**
+     * The condition with the given text (such as a bind variable) as its value. For a semi-join
+     * the text is the inner query, in parentheses.
+     */
     public String toSoql(String literal) {
       String clause;
       if (aggregate != null) {
-        clause = aggregate.toSoql() + ' ' + aggregateKeyword() + ' ' + (literal ?? inlineLiteral(operand));
-      } else if (comparison == null) {
+        clause = aggregate.toSoql() + ' ' + aggregateKeyword() + ' ' + (literal ?? aggregateLiteral());
+      } else if (path() == null) {
         throw new ConditionException('Cannot generate SOQL for ' + pendingPath + ' before realize()');
+      } else if (innerQuery != null) {
+        String innerSoql = literal ?? Query.semiJoinSoql(innerQuery, null);
+        clause = joinPath.name() + ' ' + Typing.operator(kind).toSoql() + ' ' + innerSoql;
       } else {
         clause = literal == null ? comparison.toSoql() : comparison.toSoql(literal);
       }
       return negated == true ? '(NOT ' + clause + ')' : clause;
     }
 
-    /** The condition with its value inline. */
+    /** The condition with its value inline; a semi-join's inner query has its values inline too. */
     public String toSoql() {
       return toSoql((String) null);
     }
 
-    // HAVING compares one aggregate with one value, so only =, !=, <, >, <= and >= apply.
+    // HAVING compares one aggregate with one value, so only =, !=, <, >, <= and >= apply, and
+    // with null only = and !=.
     private String aggregateKeyword() {
       Typing.Operator op = Typing.operator(kind);
       if (op.isPlural() || kind == Enums.Comparator.LK) {
         throw new ConditionException('Unsupported operator for aggregate function: ' + kind);
       }
+      if (operand == null && kind != Enums.Comparator.EQ && kind != Enums.Comparator.NE) {
+        throw new ConditionException(
+          'Cannot compare ' + aggregate.toSoql() + ' with null by ' + kind + ': null goes with EQ and NE'
+        );
+      }
       return op.toSoql();
+    }
+
+    // The value of a HAVING condition, written inline the way Typing writes one. A date literal
+    // is written as one of the framework's own, so that text from another class is checked first.
+    // A Date against the earliest or latest date-time is midnight GMT, as it is for such a field.
+    private String aggregateLiteral() {
+      if (operand instanceof IDateLiteral) {
+        return DateLiteral.checked((IDateLiteral) operand).toSoql();
+      }
+      Typing.Evaluator evaluator = Typing.getSoapyValue(operand, null)?.getEvaluator();
+      List<String> literals = evaluator instanceof Typing.DatetimeEvaluator
+        ? ((Typing.DatetimeEvaluator) evaluator).itemsToSoql(aggregatedType() == SoapType.DATETIME)
+        : evaluator?.itemsToSoql();
+      return literals == null || literals.isEmpty() ? String.valueOf(operand) : literals[0];
+    }
+
+    // The type of the field the aggregate function is over; null when it cannot be told.
+    private SoapType aggregatedType() {
+      Object over = aggregate.field();
+      if (over instanceof SObjectField) {
+        return owner.core.path((SObjectField) over).describe().getSoapType();
+      }
+      if (over instanceof String && boundType != null) {
+        over = owner.core.model(boundType).path((String) over);
+      }
+      return over instanceof IPath ? ((IPath) over).describe()?.getSoapType() : null;
     }
   }
 
-  // Renders one value the way Typing writes inline literals.
-  private static String inlineLiteral(Object operand) {
-    Typing.Evaluator evaluator = Typing.getSoapyValue(operand, null)?.getEvaluator();
-    List<String> literals = evaluator?.itemsToSoql();
-    return literals == null || literals.isEmpty() ? String.valueOf(operand) : literals[0];
+  // A member's answer: true, false, or null for unknown. A condition of another class has two answers.
+  private static Boolean testMember(ICondition member, SObject candidate) {
+    if (member instanceof FieldCondition) {
+      return ((FieldCondition) member).test(candidate);
+    }
+    if (member instanceof LogicalCondition) {
+      return ((LogicalCondition) member).test(candidate);
+    }
+    return member.evaluate(candidate);
   }
 
   /**
@@ -414,12 +557,24 @@ public class Filtering {
   public class ConditionCompilation implements IConditionCompilation {
     public String markup;
     private IModel source;
+    private Boolean grouped;
     private List<FieldCondition> leaves = new List<FieldCondition>();
 
     public ConditionCompilation(SObjectType target, ICondition root, Filtering owner) {
-      source = owner.core.model(target);
-      root.realize(target);
+      this(owner.core.model(target), root, false);
+    }
+
+    /** With `grouped`, for a HAVING clause: it takes no bare field, so its constants are counts. */
+    public ConditionCompilation(IModel source, ICondition root, Boolean grouped) {
+      this.source = source;
+      this.grouped = grouped == true;
+      root.realize(source.token());
       markup = root.compile(this);
+    }
+
+    // The text of a branch with nothing in it: a test that always holds, or never does.
+    private String constant(Boolean always) {
+      return Typing.constantSoql(source, always, grouped);
     }
 
     /** Every leaf written inline. */

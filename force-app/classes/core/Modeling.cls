@@ -2,8 +2,10 @@
  * The schema layer. A Model wraps one SObjectType (fields, record types, child relationships)
  * and turns routes into paths. A Path is one field reached from a model, directly or across
  * lookups (Contact, then Account, then Owner, then Name). A lookup with a single target
- * (MonoPath) is also a reference that longer paths can start from; one with several targets
- * (PolyPath) is not. Orderings and aggregate functions live here too, as both are built on paths.
+ * (MonoPath) is also a reference that longer paths can start from. One with several targets
+ * (PolyPath) is not, but a path can go on through it to the few fields every target has, which
+ * the platform keeps on the Name object: What.Type, Owner.Name, Owner.Profile.Name. Orderings and
+ * aggregate functions live here too, as both are built on paths.
  */
 public class Modeling {
   public IScheme scheme;
@@ -132,12 +134,15 @@ public class Modeling {
       } else if (route instanceof SObjectField) {
         steps = new List<SObjectField>();
         steps.add((SObjectField) route);
+      } else if (route instanceof NameReference) {
+        // The far side of a polymorphic lookup, as fields selected through one are keyed
+        steps = ((NameReference) route).fieldSequence();
       } else {
         recognized = false;
       }
       Boolean unresolved = path == null && !deadEnd;
       if (unresolved) {
-        List<SObjectField> walked = start instanceof Path ? ((Path) start).fieldSequence() : new List<SObjectField>();
+        List<SObjectField> walked = start.fieldSequence();
         walked.addAll(steps ?? new List<SObjectField>());
         path = ((Model) start.source()).doGetPath(walked);
       }
@@ -145,6 +150,8 @@ public class Modeling {
         reference = start;
       } else if (path instanceof IReference) {
         reference = (IReference) path;
+      } else if (route instanceof NameReference && path instanceof PolyPath) {
+        reference = ((PolyPath) path).nameReference();
       }
     }
 
@@ -155,7 +162,8 @@ public class Modeling {
         throw new PathException('Cannot follow ' + route + ' from ' + start + ': unsupported route type');
       }
       if (found == null && requireNotNull == true) {
-        throw new PathException('Cannot follow ' + route + ' from ' + start + ': it leads nowhere');
+        String reason = route instanceof String ? ((Model) start.target()).polymorphicDeadEnd((String) route) : null;
+        throw new PathException('Cannot follow ' + route + ' from ' + start + ': ' + (reason ?? 'it leads nowhere'));
       }
       return found;
     }
@@ -398,7 +406,8 @@ public class Modeling {
     /*
      * The fields a dotted name walks, or null if it does not resolve. Each part is a field name;
      * a part that is not one is tried as the relationship of a lookup (Account for AccountId,
-     * Owner__r for Owner__c). Every part but the last must be a lookup to a single object.
+     * Owner__r for Owner__c). Every part but the last must be a lookup: to a single object, or
+     * to several, and then the next part is a field of the Name object (What.Type, Owner.Name).
      * A blank name gives null.
      */
     public List<SObjectField> surmiseTokenSequence(String dottedName) {
@@ -418,19 +427,43 @@ public class Modeling {
           return null;
         }
         if (at < parts.size() - 1) {
-          List<SObjectType> pointsAt = scheme.getFieldDescribe(step).getReferenceTo();
-          if (pointsAt.size() != 1) {
+          here = modeling.beyond(scheme.getFieldDescribe(step));
+          if (here == null) {
             return null;
           }
-          here = modeling.model(pointsAt[0]);
         }
         walked.add(step);
       }
       return walked;
     }
 
+    // Why a dotted name leads nowhere, when the reason is a field that does not follow a
+    // polymorphic lookup (What.Industry); null for any other reason.
+    private String polymorphicDeadEnd(String dottedName) {
+      List<String> parts = dottedName.split('\\.');
+      Model here = this;
+      for (Integer at = 0; at < parts.size() - 1; at++) {
+        Map<String, SObjectField> known = here.fieldMap();
+        SObjectField step = known.get(parts[at]) ?? known.get(lookupFieldName(parts[at]));
+        DescribeFieldResult described = step == null ? null : scheme.getFieldDescribe(step);
+        Model next = described == null ? null : modeling.beyond(described);
+        if (next == null) {
+          return null;
+        }
+        String following = parts[at + 1];
+        Map<String, SObjectField> shared = next.fieldMap();
+        Boolean follows = shared.containsKey(following) || shared.containsKey(lookupFieldName(following));
+        if (described.getReferenceTo().size() > 1 && !follows) {
+          return parts[at] + ' can point at several objects, and ' + following + ' is not a field of them all';
+        }
+        here = next;
+      }
+      return null;
+    }
+
     // The path along the fields from this model, or null if they do not form one. Every step but
-    // the last must be a single-target lookup. Results, including null, are cached.
+    // the last must be a lookup; after one with several targets come fields of the Name object.
+    // Results, including null, are cached.
     private Path doGetPath(List<SObjectField> fieldSequence) {
       if (fieldSequence == null || fieldSequence.isEmpty()) {
         return null;
@@ -452,19 +485,24 @@ public class Modeling {
         if (step == null || !stepModel.owns(step)) {
           return null;
         }
-        targets = scheme.getFieldDescribe(step).getReferenceTo();
+        DescribeFieldResult described = scheme.getFieldDescribe(step);
+        targets = described.getReferenceTo();
         if (at < last) {
-          if (targets.size() != 1) {
+          stepModel = modeling.beyond(described);
+          if (stepModel == null) {
             return null;
           }
-          stepModel = modeling.model(targets[0]);
         }
       }
       List<SObjectField> lead = new List<SObjectField>();
       for (Integer at = 0; at < last; at++) {
         lead.add(fieldSequence[at]);
       }
-      IReference via = lead.isEmpty() ? (IReference) this : (IReference) doGetPath(lead);
+      IReference via = this;
+      if (!lead.isEmpty()) {
+        Path before = doGetPath(lead);
+        via = before instanceof PolyPath ? ((PolyPath) before).nameReference() : (IReference) before;
+      }
       SObjectField terminus = fieldSequence[last];
       if (targets.isEmpty()) {
         return new Path(via, terminus, modeling);
@@ -609,7 +647,7 @@ public class Modeling {
 
     private List<SObjectField> steps() {
       if (steps == null) {
-        steps = origin instanceof Path ? ((Path) origin).fieldSequence() : new List<SObjectField>();
+        steps = origin.fieldSequence();
         steps.add(endField);
       }
       return steps;
@@ -625,7 +663,8 @@ public class Modeling {
     public String label() {
       if (dottedLabel == null) {
         String own = describe().getLabel();
-        dottedLabel = origin instanceof MonoPath ? ((MonoPath) origin).label() + '.' + own : own;
+        IPath before = origin.toPath();
+        dottedLabel = before == null ? own : before.label() + '.' + own;
       }
       return dottedLabel;
     }
@@ -639,6 +678,9 @@ public class Modeling {
     }
 
     public Object getFieldValue(SObject record) {
+      if (origin instanceof NameReference) {
+        return ((NameReference) origin).read(record, endField);
+      }
       SObject holder = origin.getRecordValue(record);
       return holder == null ? null : holder.get(endField);
     }
@@ -678,7 +720,8 @@ public class Modeling {
     public override String relationshipName() {
       if (relationshipPath == null) {
         String own = describe().getRelationshipName();
-        relationshipPath = origin instanceof MonoPath ? ((MonoPath) origin).relationshipName() + '.' + own : own;
+        IPath before = origin.toPath();
+        relationshipPath = before instanceof LookupPath ? ((LookupPath) before).relationshipName() + '.' + own : own;
       }
       return relationshipPath;
     }
@@ -695,6 +738,9 @@ public class Modeling {
     }
 
     public SObject getRecordValue(SObject record) {
+      if (origin instanceof NameReference) {
+        return ((NameReference) origin).follow(record, endField);
+      }
       SObject holder = origin.getRecordValue(record);
       return holder == null ? null : holder.getSObject(endField);
     }
@@ -736,11 +782,169 @@ public class Modeling {
     }
   }
 
-  /** A lookup with several possible targets, such as WhatId; fields beyond it need TYPEOF. */
+  /**
+   * A lookup with several possible targets, such as WhatId. A target's own fields need TYPEOF;
+   * the fields every target has are read through nameReference().
+   */
   public class PolyPath extends LookupPath {
+    private NameReference beyond;
+
     private PolyPath(IReference origin, SObjectField endField, Modeling modeling) {
       super(origin, endField, modeling);
     }
+
+    /** Where paths through this lookup start from: the Name object, which stands for any target. */
+    public NameReference nameReference() {
+      if (beyond == null) {
+        beyond = new NameReference(this, modeling);
+      }
+      return beyond;
+    }
+
+  }
+
+  /**
+   * The far side of a polymorphic lookup. The platform reaches it through the Name object, which
+   * has the few fields every target shares: Type (the target's object name), Name, and for people
+   * FirstName, LastName, Email, Phone, Title, Alias, Username, IsActive, Profile and UserRole.
+   * So What.Type, Owner.Name and Owner.Profile.Name are paths, and What.Industry is not.
+   *
+   * In memory the related record may be a Name row (as a query on What.Type returns it), a row
+   * of the target itself (from TYPEOF, or put there in code), or absent. Type is then worked out
+   * from what there is: the row's own type, or the type of the Id in the lookup field. A row of
+   * the target is read by the names its fields share with the Name object.
+   */
+  public class NameReference implements IReference {
+    private PolyPath lookup;
+    private Modeling modeling;
+
+    private NameReference(PolyPath lookup, Modeling modeling) {
+      this.lookup = lookup;
+      this.modeling = modeling;
+    }
+
+    public List<SObjectField> fieldSequence() {
+      return lookup.fieldSequence();
+    }
+
+    public SObject getRecordValue(SObject row) {
+      return lookup.getRecordValue(row);
+    }
+
+    public IReference getReference(Object via) {
+      return referenceFrom(this, via);
+    }
+
+    public Path path(Object via) {
+      return pathFrom(this, via, null, null);
+    }
+
+    public Path path(Object via, Boolean strictType, Boolean strictNull) {
+      return pathFrom(this, via, strictType, strictNull);
+    }
+
+    public Integer size() {
+      return lookup.size();
+    }
+
+    public Model source() {
+      return lookup.source();
+    }
+
+    public Model target() {
+      return modeling.model(Schema.Name.SObjectType);
+    }
+
+    public Path toPath() {
+      return lookup;
+    }
+
+    /** A field of the Name object, written through the lookup: What.Type. */
+    public String toSoql(SObjectField field) {
+      return lookup.relationshipName() + '.' + field;
+    }
+
+    public Boolean equals(Object other) {
+      return other instanceof NameReference && ((NameReference) other).lookup == lookup;
+    }
+
+    public Integer hashCode() {
+      return toString().hashCode();
+    }
+
+    public override String toString() {
+      return lookup.toString() + ':Name';
+    }
+
+    // One of the Name object's fields, read from whatever the record carries for the lookup.
+    private Object read(SObject record, SObjectField nameField) {
+      SObject holder = lookup.reference().getRecordValue(record);
+      if (holder == null) {
+        return null;
+      }
+      String fieldName = modeling.scheme.getFieldDescribe(nameField).getName();
+      SObject related = (SObject) holder.getPopulatedFieldsAsMap().get(lookup.describe().getRelationshipName());
+      if (related == null) {
+        return unloaded(holder, fieldName);
+      }
+      if (related.getSObjectType() == Schema.Name.SObjectType) {
+        return related.get(nameField);
+      }
+      if (fieldName == 'Type') {
+        return typeName(related.getSObjectType());
+      }
+      SObjectField own = sameNamed(related, nameField);
+      return own == null ? null : related.get(own);
+    }
+
+    // Nothing is loaded for the lookup. The Id in the lookup field still tells the type, and is
+    // the Id; every other field is empty. A record that a query returned with neither the
+    // relationship nor the Id needed throws the platform's SObjectException, as any field does
+    // that was not selected.
+    private Object unloaded(SObject holder, String fieldName) {
+      SObjectField lookupField = lookup.terminus();
+      if ((fieldName == 'Type' || fieldName == 'Id') && holder.isSet(lookupField)) {
+        Id key = (Id) holder.get(lookupField);
+        return fieldName == 'Id' ? (Object) key : typeName(key?.getSObjectType());
+      }
+      return holder.getSObject(lookupField)?.get(fieldName);
+    }
+
+    // The record that a lookup of the Name object leads to (Owner.Profile), from whatever the
+    // record carries for the polymorphic lookup.
+    private SObject follow(SObject record, SObjectField nameLookup) {
+      SObject related = lookup.getRecordValue(record);
+      if (related == null || related.getSObjectType() == Schema.Name.SObjectType) {
+        return related?.getSObject(nameLookup);
+      }
+      SObjectField own = sameNamed(related, nameLookup);
+      return own == null ? null : related.getSObject(own);
+    }
+
+    // A row of the target itself has a field of the Name object under the same name, or not at all.
+    private SObjectField sameNamed(SObject related, SObjectField nameField) {
+      String fieldName = modeling.scheme.getFieldDescribe(nameField).getName();
+      return modeling.model(related.getSObjectType()).fieldMap().get(fieldName);
+    }
+
+    // What SOQL gives for Type: the object's API name, but Queue for a group of any kind (a
+    // queue, a public group, the organization's own group), so a group's Id tells it too.
+    private String typeName(SObjectType pointedAt) {
+      if (pointedAt == Group.SObjectType) {
+        return 'Queue';
+      }
+      return pointedAt == null ? null : String.valueOf(pointedAt);
+    }
+  }
+
+  // The model that a path continues in after a lookup field: the lookup's one target, the Name
+  // object for a polymorphic lookup, or null when the field is not a lookup.
+  private Model beyond(DescribeFieldResult described) {
+    List<SObjectType> targets = described.getReferenceTo();
+    if (targets.size() == 1) {
+      return model(targets[0]);
+    }
+    return targets.size() > 1 && described.isNamePointing() ? model(Schema.Name.SObjectType) : null;
   }
 
   // # Ordering

@@ -6,8 +6,8 @@ An Apex framework for Salesforce that gives queries, conditions, triggers, DML a
 
 ## What it does
 
-- **Queries**: a fluent SOQL builder with fields across lookups, `TYPEOF` for polymorphic lookups, child subqueries, aggregates (with `ROLLUP`/`CUBE`) and SOSL. Values are bound (`:a0`) when the query runs.
-- **Conditions**: `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `lk` (LIKE), `iin`, `nin`, `inc`, `exc`, combined with `all`/`any`, or parsed from text such as `Industry = 'Energy' AND AnnualRevenue > 1000000`. The same condition renders as SOQL or evaluates records in memory.
+- **Queries**: a fluent SOQL builder with fields across lookups, polymorphic lookups (`What.Type`, and `TYPEOF` for a target's own fields), child subqueries, semi-joins and anti-joins (`WHERE Id IN (SELECT ...)`), aggregates (with `ROLLUP`/`CUBE`), SOSL, and the statement's options (`FOR UPDATE`, `ALL ROWS`, `USING SCOPE`, `FOR VIEW`, `FOR REFERENCE`). Values are bound (`:a0`) when the query runs.
+- **Conditions**: `eq`, `ne`, `gt`, `ge`, `lt`, `le`, `lk` (LIKE), `iin`, `nin`, `inc`, `exc`, combined with `all`/`any`, or parsed from text such as `Industry = 'Energy' AND CreatedDate >= LAST_N_DAYS:30`. Date literals (`TODAY`, `THIS_FISCAL_QUARTER`, `NEXT_N_MONTHS:2`) are values like any other. The same condition renders as SOQL or evaluates records in memory, and the guide says exactly where the two were checked to agree.
 - **Domains and triggers**: one class per object for trigger logic, with switches in code, bypass rules that can read a custom permission, optional permission checks, and in-memory helpers (`filter`, `sort`, `catalog`, `aggregate`, change detection).
 - **Unit of work**: `IWork` collects inserts, updates, upserts, deletes, emails and platform events, links new parents and children, and applies them in dependency order with as few DML statements as possible. It can run as the user, and it can save what it can and tell you, record by record, what it could not: a child is never saved without the new parent it depends on.
 - **Async**: queueable, batch and schedulable jobs from small handler classes, chained with `then()`, with shared values along the chain and rules for jobs started inside jobs.
@@ -113,7 +113,7 @@ inj.Async.queueable(new PrepareData())
 - **Logging.** There is none. Use it beside a logger such as [Nebula Logger](https://github.com/jongpie/NebulaLogger).
 - **Triggers configured by admins.** Trigger logic for an object lives in one class and runs in the order that class gives it. There is no ordering in custom metadata and no Flow action in the chain.
 - **Async operations.** No built-in retries (the async guide has a recipe for writing one), no finalizer hooks, no Apex cursors and no monitoring screen.
-- **Queries.** No semi-joins (`WHERE Id IN (SELECT ...)`) and no result caching.
+- **Queries.** No result caching. A semi-join is built in code: a condition parsed from text cannot hold one, and one cannot be tested in memory. `USING SCOPE` is written as asked: the platform ends the transaction for a scope the object does not support, and Apex gives the framework no way to check first. Fiscal date literals are tested in memory for standard fiscal years only.
 - **A track record for this version.** An earlier version runs in a production org. This rewrite has run in scratch orgs only, it has one maintainer, and it has no CI yet.
 
 [How it compares](docs/documentation/comparison.md) says when another library is the better choice.
@@ -138,7 +138,7 @@ Deployed as source, the classes have no namespace: write `IQuery` where the guid
 
 ## Documentation
 
-- [Query guide](docs/documentation/query-guide.md): fields, lookups and TYPEOF, conditions, subqueries, aggregates, search
+- [Query guide](docs/documentation/query-guide.md): fields, lookups and polymorphic lookups, conditions, date literals, semi-joins, subqueries, statement options, aggregates, search
 - [Extension guide](docs/documentation/extension-guide.md): custom queries and domains, registration
 - [Async guide](docs/documentation/async-guide.md): handlers, chaining, capture modes, testing
 - [Work guide](docs/documentation/work-guide.md): DML ordering, relationships, merging

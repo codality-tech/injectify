@@ -71,6 +71,14 @@ static void theRuleMatchesLargeEnergyAccounts() {
 }
 ```
 
+The [query guide](query-guide.md#testing-records-in-memory) lists what "the same answer" covers, and the few conditions that cannot be tested this way.
+
+### Things a test sees differently
+
+- **Date literals follow the real day.** A condition such as `App.s.eq(Task.ActivityDate, inj.DateLiteral.thisWeek())` means this week when the test runs, in a query and in memory. Give test records dates relative to `Date.today()`, not fixed ones.
+- **A user of the org has no `Name` row in a test.** A path through a polymorphic lookup (`Owner.Name`, `Owner.Type`) is read from the platform's `Name` object, and a test sees the rows of that object only for records the test made. A task owned by the user running the test comes back with an empty `Owner`, and `Owner.Type = 'User'` does not find it. Make the owner in the test (a user, or a queue) when the test depends on such a path. In memory, a record that carries only the Id still reads `Owner.Type` from the Id.
+- **A record inserted in a test already has `LastViewedDate` and `LastReferencedDate`**, so a test cannot show what `forView(true)` or `forReference(true)` changed.
+
 ---
 
 ## Mocking queries with MockScheme
@@ -116,6 +124,9 @@ What the mock does:
 
 - A query returns the rows registered for its outermost FROM object, as a list of that object's type (empty if nothing was registered), so casts such as `(List<Account>) q.run()` work.
 - The rows come back as registered. Conditions, ordering and limits are recorded but not applied.
+- A semi-join (`iin` or `nin` with a query) is recorded as part of the outer query's SOQL, with its values in the same bind map. The rows returned are the outer object's; the rows registered for the inner object play no part.
+- `allRows`, `usingScope`, `forView` and `forReference` are recorded as part of the SOQL too (`... FROM Account USING SCOPE mine ... ALL ROWS`), and applied to nothing. A date literal is in the SOQL text, not among the bind values.
+- A fiscal date literal tested in memory asks the scheme for the fiscal year, with two queries: a count of `FiscalYearSettings` rows that are not standard, and the `FiscalYearStartMonth` of the `Organization`. Register an `Organization` row to give the month, built with `JSON.deserialize` since the field cannot be set in code: `(Organization) JSON.deserialize('{"attributes":{"type":"Organization"},"FiscalYearStartMonth":3}', Organization.class)`. With no such row registered the condition throws a `ConditionException`; with a `FiscalYearSettings` row registered it is refused as for an organization with custom fiscal years.
 - `count()` returns the number of registered rows.
 - Aggregate queries return no rows: Apex cannot build an `AggregateResult`.
 - `toLocator()` still reads the database, since a query locator can only come from a real query.

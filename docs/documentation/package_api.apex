@@ -26,6 +26,8 @@ interface IAggregateQuery {
   IAggregateQuery setOffset(Integer offsetCount);
   IAggregateQuery withSecurity(Boolean enforceSecurity);
   IAggregateQuery withSharing(Boolean enforceSharing);
+  IAggregateQuery allRows(Boolean include);
+  IAggregateQuery usingScope(Enums.FilterScope scope);
   String toSoql();
   String toSoql(Boolean binding);
   List<AggregateResult> run();
@@ -148,6 +150,10 @@ interface IApplication extends ICore {
   IQueryFactory qf();
   IDomainFactory df();
   ITriggeredFactory tf();
+}
+
+interface IDateLiteral {
+  String toSoql();
 }
 
 interface IDomain {
@@ -300,6 +306,10 @@ interface IQuery {
   IQuery withSharing(Boolean enforce);
   IQuery withSecurity(Boolean enforce);
   IQuery forUpdate(Boolean lock);
+  IQuery allRows(Boolean include);
+  IQuery usingScope(Enums.FilterScope scope);
+  IQuery forView(Boolean mark);
+  IQuery forReference(Boolean mark);
   IQuery deepClone();
 }
 
@@ -486,6 +496,54 @@ class CsvUtil {
   }
 }
 
+inherited sharing class DateLiteral {
+  static IDateLiteral yesterday();
+  static IDateLiteral today();
+  static IDateLiteral tomorrow();
+  static IDateLiteral last90Days();
+  static IDateLiteral next90Days();
+  static IDateLiteral lastNDays(Integer n);
+  static IDateLiteral nextNDays(Integer n);
+  static IDateLiteral nDaysAgo(Integer n);
+  static IDateLiteral lastWeek();
+  static IDateLiteral thisWeek();
+  static IDateLiteral nextWeek();
+  static IDateLiteral lastNWeeks(Integer n);
+  static IDateLiteral nextNWeeks(Integer n);
+  static IDateLiteral nWeeksAgo(Integer n);
+  static IDateLiteral lastMonth();
+  static IDateLiteral thisMonth();
+  static IDateLiteral nextMonth();
+  static IDateLiteral lastNMonths(Integer n);
+  static IDateLiteral nextNMonths(Integer n);
+  static IDateLiteral nMonthsAgo(Integer n);
+  static IDateLiteral lastQuarter();
+  static IDateLiteral thisQuarter();
+  static IDateLiteral nextQuarter();
+  static IDateLiteral lastNQuarters(Integer n);
+  static IDateLiteral nextNQuarters(Integer n);
+  static IDateLiteral nQuartersAgo(Integer n);
+  static IDateLiteral lastYear();
+  static IDateLiteral thisYear();
+  static IDateLiteral nextYear();
+  static IDateLiteral lastNYears(Integer n);
+  static IDateLiteral nextNYears(Integer n);
+  static IDateLiteral nYearsAgo(Integer n);
+  static IDateLiteral lastFiscalQuarter();
+  static IDateLiteral thisFiscalQuarter();
+  static IDateLiteral nextFiscalQuarter();
+  static IDateLiteral lastNFiscalQuarters(Integer n);
+  static IDateLiteral nextNFiscalQuarters(Integer n);
+  static IDateLiteral nFiscalQuartersAgo(Integer n);
+  static IDateLiteral lastFiscalYear();
+  static IDateLiteral thisFiscalYear();
+  static IDateLiteral nextFiscalYear();
+  static IDateLiteral lastNFiscalYears(Integer n);
+  static IDateLiteral nextNFiscalYears(Integer n);
+  static IDateLiteral nFiscalYearsAgo(Integer n);
+  static IDateLiteral of(String text);
+}
+
 class DebugUtil {
   static IPrinter printer();
   interface IPrinter {
@@ -539,6 +597,9 @@ abstract class BaseDomain extends DomainRecords implements IDomain, ITriggered, 
 class Enums {
   enum SearchScope {
     ALL, NAME, EMAIL, PHONE;
+  }
+  enum FilterScope {
+    DELEGATED, EVERYTHING, MINE, MINE_AND_MY_GROUPS, MY_TERRITORY, MY_TEAM_TERRITORY, SCOPING_RULE, TEAM;
   }
   enum Comparator {
     EQ, NE, LT, GT, LE, GE, LK, NIN, IIN, EXC, INC;
@@ -696,6 +757,10 @@ virtual inherited sharing class Query implements IQuery {
   virtual IQuery withSecurity(Boolean enforce);
   virtual IQuery withSharing(Boolean enforce);
   virtual IQuery forUpdate(Boolean lock);
+  virtual IQuery allRows(Boolean include);
+  virtual IQuery usingScope(Enums.FilterScope scope);
+  virtual IQuery forView(Boolean mark);
+  virtual IQuery forReference(Boolean mark);
   virtual String toSoql();
   virtual String toSoql(Boolean binding);
   virtual List<SObject> run();

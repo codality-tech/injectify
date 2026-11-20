@@ -25,6 +25,10 @@ global interface IQuery {
   IQuery withSharing(Boolean enforce);
   IQuery withSecurity(Boolean enforce);
   IQuery forUpdate(Boolean lock);
+  IQuery allRows(Boolean include);
+  IQuery usingScope(Enums.FilterScope scope);
+  IQuery forView(Boolean mark);
+  IQuery forReference(Boolean mark);
 
   IQuery deepClone();
 }

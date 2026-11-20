@@ -10,6 +10,8 @@ Things that are easy to get wrong:
 - Query and domain classes extend `inj.BaseQuery` and `inj.BaseDomain`, are declared `global`, and override hooks as `public` or `global` (never `protected`).
 - Inside those classes, inherited methods are called directly: `records()`, `addCondition(...)`. (`base()`, needed before 0.3.0-2, still works.)
 - `run()` binds condition values (`:a0`, `:a1`); `toSoql()` writes them inline and is for display.
+- A SOQL date literal is a value made by `inj.DateLiteral` (`inj.DateLiteral.lastNDays(30)`), never text in a string.
+- `usingScope(...)` with a scope the object does not support ends the transaction with an error no code can catch.
 - Queries and units of work run in system mode unless `withSharing(true)` asks for user mode.
 - Framework exceptions other than `inj.Application.FactoryException` and the utility classes' exceptions are not global: catch `Exception`.
 
@@ -17,7 +19,7 @@ Things that are easy to get wrong:
 
 - [README](README.md): what the framework does, and a sixty-second tour
 - [Extension guide](docs/documentation/extension-guide.md): the `App` entry point, custom query classes, domain classes, triggers, services, working across the namespace
-- [Query guide](docs/documentation/query-guide.md): fields, lookups and TYPEOF, conditions (built, parsed from text, evaluated in memory), ordering, subqueries, security, aggregate queries, SOSL searches
+- [Query guide](docs/documentation/query-guide.md): fields, lookups and polymorphic lookups (`What.Type`, TYPEOF), conditions (built, parsed from text, evaluated in memory, and where the three agree), date literals, semi-joins and anti-joins, ordering, subqueries, security, `ALL ROWS`, `USING SCOPE`, `FOR VIEW` and `FOR REFERENCE`, aggregate queries, SOSL searches
 - [Work guide](docs/documentation/work-guide.md): the unit of work: inserts, updates, upserts, deletes, related records, ordering, user mode, partial success, errors
 - [Async guide](docs/documentation/async-guide.md): queueable, batch and schedulable handlers, chaining, jobs started inside jobs, shared values
 - [Testing guide](docs/documentation/testing-guide.md): asserting on SOQL, `MockScheme`, testing domains, work and async jobs

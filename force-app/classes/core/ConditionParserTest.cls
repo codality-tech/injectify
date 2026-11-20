@@ -33,7 +33,7 @@ private class ConditionParserTest {
     System.assertEquals('CreatedDate', tokens[0].value);
     System.assertEquals(ConditionParser.TokenType.GE, tokens[1].type);
     System.assertEquals(
-      ConditionParser.TokenType.DATETIME_LITERAL,
+      ConditionParser.TokenType.DATETIME_VALUE,
       tokens[2].type
     );
     System.assertEquals('2023-12-25T10:30:00Z', tokens[2].value);
@@ -48,7 +48,7 @@ private class ConditionParserTest {
 
     System.assertEquals(4, tokens.size());
     System.assertEquals(
-      ConditionParser.TokenType.DATETIME_LITERAL,
+      ConditionParser.TokenType.DATETIME_VALUE,
       tokens[2].type
     );
     System.assertEquals('2023-12-25T10:30:00.123Z', tokens[2].value);
@@ -63,7 +63,7 @@ private class ConditionParserTest {
 
     System.assertEquals(4, tokens.size());
     System.assertEquals(
-      ConditionParser.TokenType.DATETIME_LITERAL,
+      ConditionParser.TokenType.DATETIME_VALUE,
       tokens[2].type
     );
     System.assertEquals('2023-12-25T10:30:00+05:30', tokens[2].value);
@@ -284,7 +284,7 @@ private class ConditionParserTest {
 
     System.assert(tree instanceof ConditionParser.FieldConditionNode);
     ConditionParser.FieldConditionNode node = (ConditionParser.FieldConditionNode) tree;
-    System.assertEquals('2023-12-25', node.value);
+    System.assertEquals(Date.newInstance(2023, 12, 25), node.value);
   }
 
   @isTest
@@ -297,7 +297,7 @@ private class ConditionParserTest {
     System.assert(tree instanceof ConditionParser.FieldConditionNode);
     ConditionParser.FieldConditionNode node = (ConditionParser.FieldConditionNode) tree;
     System.assertEquals(ConditionParser.TokenType.GE, node.operator);
-    System.assertEquals('2023-12-25T10:30:00Z', node.value);
+    System.assertEquals(Datetime.newInstanceGmt(2023, 12, 25, 10, 30, 0), node.value);
   }
 
   // ========== CONVERSION TO ICondition TESTS ==========
@@ -704,7 +704,7 @@ private class ConditionParserTest {
     );
 
     System.assertEquals(
-      ConditionParser.TokenType.DATETIME_LITERAL,
+      ConditionParser.TokenType.DATETIME_VALUE,
       tokens[2].type
     );
     System.assertEquals('2023-12-25T10:30:00-08:00', tokens[2].value);
@@ -718,7 +718,7 @@ private class ConditionParserTest {
     );
 
     System.assertEquals(
-      ConditionParser.TokenType.DATETIME_LITERAL,
+      ConditionParser.TokenType.DATETIME_VALUE,
       tokens[2].type
     );
     System.assertEquals('2023-12-25T00:00:00Z', tokens[2].value);
@@ -740,17 +740,14 @@ private class ConditionParserTest {
 
   @isTest
   static void test_error_unclosed_quote() {
-    // Note: The tokenizer currently doesn't throw for unclosed quotes
-    // It treats the rest of the string as part of the quoted value
-    // This test documents current behavior
     ConditionParser parser = new ConditionParser();
 
-    // This currently succeeds - unclosed quote treated as extending to end
-    List<ConditionParser.Token> tokens = parser.tokenize('Name = \'Unclosed');
-    System.assert(
-      tokens != null,
-      'Tokenizer handles unclosed quotes by reading to end'
-    );
+    try {
+      parser.tokenize('Name = \'Unclosed');
+      System.assert(false, 'Text without its closing quote was read to the end');
+    } catch (ConditionParser.ParseException e) {
+      System.assertEquals('The text that starts at position 7 has no closing quote', e.getMessage());
+    }
   }
 
   @isTest
@@ -1031,5 +1028,432 @@ private class ConditionParserTest {
       !cond.evaluate(acc2),
       'Retail Corp should not match (excluded industry)'
     );
+  }
+
+  @isTest
+  static void aSubqueryInTextIsRefusedWithAMessageThatSaysWhatToDo() {
+    IModel accountModel = core.model(Account.SObjectType);
+    Map<String, Integer> positionByText = new Map<String, Integer>{
+      'Id IN (SELECT AccountId FROM Contact)' => 7,
+      'Id NOT IN (select AccountId from Contact)' => 11,
+      'Name = \'Acme\' AND Id IN ( SELECT AccountId FROM Contact WHERE MailingCity = \'Seattle\')' => 26
+    };
+
+    for (String text : positionByText.keySet()) {
+      try {
+        accountModel.parseCondition(text);
+        System.assert(false, 'A subquery was parsed: ' + text);
+      } catch (ConditionParser.ParseException e) {
+        System.assert(e.getMessage().contains('build a semi-join'), e.getMessage());
+        System.assert(e.getMessage().contains('at position ' + positionByText.get(text) + ' '), e.getMessage());
+      }
+    }
+
+    // A list of values is still a list, whatever the values say.
+    ICondition listed = accountModel.parseCondition('Name IN (\'SELECT\', \'Acme\')');
+    System.assert(listed.evaluate(new Account(Name = 'select')));
+  }
+
+  @isTest
+  static void textAfterACompleteConditionIsAnErrorThatGivesItsPosition() {
+    IModel accountModel = core.model(Account.SObjectType);
+    Map<String, String> unexpectedByText = new Map<String, String>{
+      'Name = \'x\' ORDER BY Name' => 'Unexpected ORDER at position 11',
+      'Name = \'x\' LIMIT 5' => 'Unexpected LIMIT at position 11',
+      'Name = \'x\' Industry = \'y\'' => 'Unexpected Industry at position 11',
+      'Name = \'x\')' => 'Unexpected ) at position 10',
+      '(Name = \'x\') 5' => 'Unexpected 5 at position 13',
+      'Name IN (\'x\') \'y\'' => 'Unexpected y at position 14'
+    };
+
+    for (String text : unexpectedByText.keySet()) {
+      try {
+        accountModel.parseCondition(text);
+        System.assert(false, 'Trailing text was dropped: ' + text);
+      } catch (ConditionParser.ParseException e) {
+        System.assert(e.getMessage().startsWith(unexpectedByText.get(text) + ':'), e.getMessage());
+      }
+    }
+
+    // AND and OR do continue a condition
+    System.assertEquals(
+      '(Name = \'x\' AND Industry = \'y\')',
+      accountModel.parseCondition('Name = \'x\' AND Industry = \'y\'').toSoql()
+    );
+  }
+
+  @isTest
+  static void noTextAtAllIsAnErrorNotACrash() {
+    for (String text : new List<String>{ null, '', '   ' }) {
+      try {
+        core.model(Account.SObjectType).parseCondition(text);
+        System.assert(false, 'Parsed nothing');
+      } catch (ConditionParser.ParseException e) {
+        System.assert(e.getMessage().startsWith('Expected FIELD at position'), e.getMessage());
+      }
+    }
+  }
+
+  @isTest
+  static void dateLiteralsAreReadAsTheValuesOfDateFields() {
+    IModel opportunities = core.model(Opportunity.SObjectType);
+    List<String> written = new List<String>{
+      'CloseDate = TODAY',
+      'CloseDate >= LAST_N_DAYS:30',
+      'CreatedDate != THIS_FISCAL_QUARTER',
+      '(CloseDate < NEXT_N_FISCAL_YEARS:2 AND (NOT CreatedDate > N_WEEKS_AGO:0))',
+      'CloseDate IN (THIS_WEEK, LAST_WEEK)',
+      'CreatedDate NOT IN (YESTERDAY, NEXT_N_MONTHS:3)'
+    };
+
+    for (String text : written) {
+      System.assertEquals(text, opportunities.parseCondition(text).toSoql(), 'read and written back the same');
+    }
+    System.assertEquals(
+      'CloseDate = LAST_N_DAYS:30',
+      opportunities.parseCondition('closedate = last_n_days:30').toSoql(),
+      'in any case'
+    );
+
+    List<ConditionParser.Token> tokens = new ConditionParser().tokenize('CloseDate = LAST_N_DAYS:30');
+    System.assertEquals(ConditionParser.TokenType.DATE_LITERAL, tokens[2].type);
+    System.assertEquals('LAST_N_DAYS:30', tokens[2].value);
+
+    for (String spaced : new List<String>{ 'CloseDate >= LAST_N_DAYS : 30', 'CloseDate >= last_n_days: 30', 'CloseDate >= LAST_N_DAYS :30' }) {
+      System.assertEquals('CloseDate >= LAST_N_DAYS:30', opportunities.parseCondition(spaced).toSoql(), 'spaces around the colon, as SOQL takes them');
+    }
+    System.assertEquals(0, Database.query('SELECT Id FROM Opportunity WHERE CloseDate >= LAST_N_DAYS : 30').size());
+
+    DateLiteral.fixedToday = Date.newInstance(2027, 6, 16);
+    ICondition thisWeek = opportunities.parseCondition('CloseDate = THIS_WEEK');
+    System.assert(((IFieldCondition) thisWeek).value() instanceof IDateLiteral, 'the value is the literal, not text');
+    System.assert(thisWeek.evaluate(new Opportunity(CloseDate = Date.newInstance(2027, 6, 16))));
+    System.assert(!thisWeek.evaluate(new Opportunity(CloseDate = Date.newInstance(2027, 6, 24))));
+
+    ICondition lately = opportunities.parseCondition('CloseDate IN (YESTERDAY, TODAY)');
+    System.assert(((IFieldCondition) lately).value() instanceof List<IDateLiteral>);
+    System.assert(lately.evaluate(new Opportunity(CloseDate = Date.newInstance(2027, 6, 15))));
+    System.assert(!lately.evaluate(new Opportunity(CloseDate = Date.newInstance(2027, 6, 14))));
+  }
+
+  @isTest
+  static void aDateLiteralIsRefusedWhereThePlatformRefusesIt() {
+    IModel opportunities = core.model(Opportunity.SObjectType);
+
+    // The platform ends the transaction for such a list, so it is refused here, with its position
+    Map<String, Integer> positionByMixedList = new Map<String, Integer>{
+      'CloseDate IN (TODAY, 2026-01-01)' => 21,
+      'CloseDate IN (2026-01-01, TODAY)' => 26
+    };
+    for (String text : positionByMixedList.keySet()) {
+      try {
+        opportunities.parseCondition(text);
+        System.assert(false, 'A mixed list was parsed: ' + text);
+      } catch (ConditionParser.ParseException e) {
+        System.assert(e.getMessage().startsWith('A list cannot mix date literals'), e.getMessage());
+        System.assert(e.getMessage().endsWith('at position ' + positionByMixedList.get(text)), e.getMessage());
+      }
+    }
+
+    for (String text : new List<String>{ 'Name = TODAY', 'Amount > LAST_N_DAYS:3', 'CloseDate LIKE TODAY' }) {
+      try {
+        opportunities.parseCondition(text);
+        System.assert(false, 'Parsed ' + text);
+      } catch (Typing.ValidationException e) {
+        System.assert(e.getMessage().contains('date literal'), e.getMessage());
+      }
+    }
+
+    // A literal that needs a number and has none is not a literal
+    try {
+      opportunities.parseCondition('CloseDate = LAST_N_DAYS');
+      System.assert(false, 'Parsed a literal without its number');
+    } catch (ConditionParser.ParseException e) {
+      System.assertEquals('Expected literal at position 12, got FIELD', e.getMessage());
+    }
+  }
+
+  @isTest
+  static void aDatetimeIsReadInTheZoneItNamesWhateverTheUsersZone() {
+    Map<String, String> writtenByText = new Map<String, String>{
+      'CreatedDate > 2026-01-31T09:30:00Z' => 'CreatedDate > 2026-01-31T09:30:00.000Z',
+      'CreatedDate > 2026-07-31T09:30:00.123Z' => 'CreatedDate > 2026-07-31T09:30:00.123Z',
+      'CreatedDate > 2026-01-31T09:30:00+02:00' => 'CreatedDate > 2026-01-31T07:30:00.000Z',
+      'CreatedDate > 2026-01-31T09:30:00-08:00' => 'CreatedDate > 2026-01-31T17:30:00.000Z',
+      'CreatedDate > 2026-01-31T09:30:00-00:30' => 'CreatedDate > 2026-01-31T10:00:00.000Z',
+      'CreatedDate > 2026-01-31T09:30:00+00:30' => 'CreatedDate > 2026-01-31T09:00:00.000Z',
+      'CreatedDate > 2026-01-31T09:30:00-03:30' => 'CreatedDate > 2026-01-31T13:00:00.000Z',
+      'CreatedDate > 2026-01-31T09:30:00+05:45' => 'CreatedDate > 2026-01-31T03:45:00.000Z'
+    };
+
+    for (String text : writtenByText.keySet()) {
+      System.assertEquals(writtenByText.get(text), core.model(Account.SObjectType).parseCondition(text).toSoql());
+    }
+
+    User elsewhere = new User(
+      ProfileId = UserInfo.getProfileId(),
+      LastName = 'Elsewhere',
+      Alias = 'elsewh',
+      Email = 'elsewhere@parser.example.com',
+      Username = 'elsewhere.' + UserInfo.getOrganizationId() + '.' + System.now().getTime() + '@parser.example.com',
+      TimeZoneSidKey = 'Pacific/Kiritimati',
+      LocaleSidKey = 'en_US',
+      EmailEncodingKey = 'UTF-8',
+      LanguageLocaleKey = 'en_US'
+    );
+    System.runAs(elsewhere) {
+      for (String text : writtenByText.keySet()) {
+        System.assertEquals(writtenByText.get(text), core.model(Account.SObjectType).parseCondition(text).toSoql());
+      }
+    }
+  }
+
+  @isTest
+  static void soqlEscapeSequencesInTextAreRead() {
+    ConditionParser parser = new ConditionParser();
+
+    System.assertEquals('O\'Brien \\ "x"', parser.tokenize('Name = \'O\\\'Brien \\\\ \\"x\\"\'')[2].value);
+    System.assertEquals('a\nb\tc\rd', parser.tokenize('Name = \'a\\nb\\Tc\\rd\'')[2].value);
+    System.assertEquals('a\bb\fc', parser.tokenize('Name = \'a\\bb\\Fc\'')[2].value);
+    System.assertEquals('caf\u00e9', parser.tokenize('Name = \'caf\\u00e9\'')[2].value);
+    System.assertEquals('50\\% off\\_', parser.tokenize('Name LIKE \'50\\% off\\_\'')[2].value, 'kept: LIKE reads them');
+    System.assertEquals('a\\qb', parser.tokenize('Name = \'a\\qb\'')[2].value, 'not an escape sequence, so kept as it is');
+    System.assertEquals('\\uZZ', parser.tokenize('Name = \'\\uZZ\'')[2].value, 'not four hex digits');
+
+    // What toSoql() writes, parseCondition() reads back
+    IModel accountModel = core.model(Account.SObjectType);
+    ICondition quoted = core.eq(Account.Name, 'O\'Brien \\ x');
+    ICondition readBack = accountModel.parseCondition(quoted.toSoql());
+    System.assertEquals(quoted.toSoql(), readBack.toSoql());
+    System.assert(readBack.evaluate(new Account(Name = 'O\'Brien \\ x')));
+
+    ICondition pattern = accountModel.parseCondition(core.lk(Account.Name, '50\\% off%').toSoql());
+    System.assert(pattern.evaluate(new Account(Name = '50% off today')));
+    System.assert(!pattern.evaluate(new Account(Name = '500 off today')));
+  }
+
+  @isTest
+  static void aListOfWholeAndDecimalNumbersIsRead() {
+    IModel accountModel = core.model(Account.SObjectType);
+    ICondition mixed = accountModel.parseCondition('AnnualRevenue IN (0, 10.5, 12345678901)');
+
+    System.assert(mixed.evaluate(new Account(AnnualRevenue = 0)));
+    System.assert(mixed.evaluate(new Account(AnnualRevenue = 10.5)));
+    System.assert(mixed.evaluate(new Account(AnnualRevenue = 12345678901L)));
+    System.assert(!mixed.evaluate(new Account(AnnualRevenue = 10)));
+
+    ICondition large = accountModel.parseCondition('AnnualRevenue > 12345678901');
+    System.assert(large.evaluate(new Account(AnnualRevenue = 12345678902L)), 'too long for an Integer, so a Long');
+    System.assert(!large.evaluate(new Account(AnnualRevenue = 5)));
+  }
+
+  @isTest
+  static void aPathThroughAPolymorphicLookupIsRead() {
+    IModel tasks = core.model(Task.SObjectType);
+    String text = '(What.Type = \'Account\' AND Owner.Name != \'Nobody\' AND Who.Email LIKE \'%@example.com\')';
+
+    System.assertEquals(text, tasks.parseCondition(text).toSoql());
+    System.assert(
+      tasks.parseCondition('What.Type = \'Account\'').evaluate(new Task(WhatId = IdUtil.generateId(Account.SObjectType))),
+      'the type is read from the Id when the record carries no more'
+    );
+    try {
+      tasks.parseCondition('What.Industry = \'Energy\'');
+      System.assert(false, 'Industry is a field of Account, not of everything What can point at');
+    } catch (Modeling.PathException e) {
+      System.assert(e.getMessage().endsWith('What can point at several objects, and Industry is not a field of them all'), e.getMessage());
+    }
+  }
+
+  @isTest
+  static void aGroupEndsAtItsClosingBracket() {
+    // Sixteen accounts: every combination of four fields that each hold one of two values
+    List<Account> rows = new List<Account>();
+    for (Integer bits = 0; bits < 16; bits++) {
+      rows.add(
+        new Account(
+          Industry = Math.mod(bits, 2) == 1 ? 'Retail' : 'Energy',
+          Type = Math.mod(bits / 2, 2) == 1 ? 'Prospect' : 'Other',
+          Name = Math.mod(bits / 4, 2) == 1 ? 'Acme' : 'Beta',
+          Rating = Math.mod(bits / 8, 2) == 1 ? 'Hot' : 'Cold'
+        )
+      );
+    }
+    insert rows;
+    String retail = 'Industry = \'Retail\'';
+    String prospect = 'Type = \'Prospect\'';
+    String acme = 'Name = \'Acme\'';
+    String hot = 'Rating = \'Hot\'';
+    // For each text: the condition as toSoql() brackets it, and how many of the sixteen it matches
+    Map<String, List<Object>> expectedByText = new Map<String, List<Object>>{
+      'NOT (' + retail + ' AND ' + prospect + ') AND ' + acme => new List<Object>{
+        '((NOT (' + retail + ' AND ' + prospect + ')) AND ' + acme + ')',
+        6
+      },
+      'NOT (' + retail + ' OR ' + prospect + ') OR ' + acme => new List<Object>{
+        '((NOT (' + retail + ' OR ' + prospect + ')) OR ' + acme + ')',
+        10
+      },
+      '(' + retail + ' AND ' + prospect + ') AND ' + acme => new List<Object>{
+        '((' + retail + ' AND ' + prospect + ') AND ' + acme + ')',
+        2
+      },
+      '(' + retail + ' OR ' + prospect + ') OR ' + acme => new List<Object>{
+        '((' + retail + ' OR ' + prospect + ') OR ' + acme + ')',
+        14
+      },
+      acme + ' AND NOT (' + retail + ' AND ' + prospect + ') AND ' + hot => new List<Object>{
+        '(' + acme + ' AND (NOT (' + retail + ' AND ' + prospect + ')) AND ' + hot + ')',
+        3
+      },
+      'NOT (' + retail + ' AND ' + prospect + ') AND ' + acme + ' AND ' + hot => new List<Object>{
+        '((NOT (' + retail + ' AND ' + prospect + ')) AND ' + acme + ' AND ' + hot + ')',
+        3
+      },
+      acme + ' OR NOT (' + retail + ' OR ' + prospect + ') OR ' + hot => new List<Object>{
+        '(' + acme + ' OR (NOT (' + retail + ' OR ' + prospect + ')) OR ' + hot + ')',
+        13
+      },
+      'NOT (' + retail + ' OR ' + prospect + ') OR ' + acme + ' AND ' + hot => new List<Object>{
+        '((NOT (' + retail + ' OR ' + prospect + ')) OR (' + acme + ' AND ' + hot + '))',
+        7
+      },
+      'NOT (NOT (' + retail + ' AND ' + prospect + ') AND ' + acme + ')' => new List<Object>{
+        '(NOT ((NOT (' + retail + ' AND ' + prospect + ')) AND ' + acme + '))',
+        10
+      },
+      'NOT (' + retail + ' AND NOT (' + prospect + ' OR ' + acme + '))' => new List<Object>{
+        '(NOT (' + retail + ' AND (NOT (' + prospect + ' OR ' + acme + '))))',
+        14
+      },
+      'NOT ' + retail + ' AND ' + prospect => new List<Object>{ '((NOT ' + retail + ') AND ' + prospect + ')', 4 },
+      'NOT (NOT (' + retail + ' AND ' + prospect + '))' => new List<Object>{ '(' + retail + ' AND ' + prospect + ')', 4 },
+      'NOT NOT (' + retail + ' AND ' + prospect + ')' => new List<Object>{ '(' + retail + ' AND ' + prospect + ')', 4 },
+      'NOT NOT NOT ' + retail => new List<Object>{ '(NOT ' + retail + ')', 8 }
+    };
+    // The platform takes these as they stand; it wants more brackets around the others
+    Set<String> runsAsWritten = new Set<String>{
+      '(' + retail + ' AND ' + prospect + ') AND ' + acme,
+      '(' + retail + ' OR ' + prospect + ') OR ' + acme,
+      'NOT (NOT (' + retail + ' AND ' + prospect + '))'
+    };
+    IModel accountModel = core.model(Account.SObjectType);
+
+    for (String text : expectedByText.keySet()) {
+      ICondition parsed = accountModel.parseCondition(text);
+      Set<Id> inMemory = new Set<Id>();
+      for (Account row : rows) {
+        if (parsed.evaluate(row)) {
+          inMemory.add(row.Id);
+        }
+      }
+
+      System.assertEquals((String) expectedByText.get(text)[0], parsed.toSoql(), text);
+      System.assertEquals((Integer) expectedByText.get(text)[1], inMemory.size(), text);
+      System.assertEquals(idsOf(Database.query('SELECT Id FROM Account WHERE ' + parsed.toSoql())), inMemory, text);
+      if (runsAsWritten.contains(text)) {
+        System.assertEquals(idsOf(Database.query('SELECT Id FROM Account WHERE ' + text)), inMemory, text);
+      }
+    }
+  }
+
+  private static Set<Id> idsOf(List<SObject> rows) {
+    return new Map<Id, SObject>(rows).keySet();
+  }
+
+  @isTest
+  static void quotedTextIsTextWhateverItLooksLike() {
+    IModel accountModel = core.model(Account.SObjectType);
+    Map<String, Account> matchByText = new Map<String, Account>{
+      'BillingPostalCode = \'94105\'' => new Account(BillingPostalCode = '94105'),
+      'Name = \'123\'' => new Account(Name = '123'),
+      'Name = \'-12.50\'' => new Account(Name = '-12.50'),
+      'Name = \'2026-01-31\'' => new Account(Name = '2026-01-31'),
+      'Name = \'2026-01-31T09:30:00Z\'' => new Account(Name = '2026-01-31T09:30:00Z'),
+      'Name = \'09:30:00.000Z\'' => new Account(Name = '09:30:00.000Z'),
+      'Name = \'TODAY\'' => new Account(Name = 'today'),
+      'Name = \'true\'' => new Account(Name = 'TRUE'),
+      'Name = \'null\'' => new Account(Name = 'null'),
+      'Name IN (\'123\', \'2026-01-31\')' => new Account(Name = '2026-01-31'),
+      'Name LIKE \'2026-01-%\'' => new Account(Name = '2026-01-31')
+    };
+
+    for (String text : matchByText.keySet()) {
+      ICondition parsed = accountModel.parseCondition(text);
+      System.assertEquals(text, parsed.toSoql(), 'read and written back the same');
+      System.assert(parsed.evaluate(matchByText.get(text)), text);
+    }
+    System.assertEquals('Name = \'123\'', accountModel.parseCondition(core.eq(Account.Name, '123').toSoql()).toSoql());
+
+    // A quoted value is not a number, a date or a checkbox, here or on the platform
+    insert new Account(Name = 'Five', NumberOfEmployees = 5);
+    for (String text : new List<String>{
+      'NumberOfEmployees = \'5\'',
+      'AnnualRevenue > \'5\'',
+      'CreatedDate > \'2026-01-31T09:30:00Z\'',
+      'LastActivityDate = \'2026-01-31\'',
+      'IsDeleted = \'false\''
+    }) {
+      try {
+        accountModel.parseCondition(text);
+        System.assert(false, 'Quoted text was read as a value of another type: ' + text);
+      } catch (Typing.ValidationException e) {
+        System.assert(e.getMessage().endsWith('so it cannot be compared with string'), e.getMessage());
+      }
+      try {
+        Database.query('SELECT Id FROM Account WHERE ' + text);
+        System.assert(false, 'The platform took ' + text);
+      } catch (QueryException e) {
+        System.assert(e.getMessage().endsWith('should not be enclosed in quotes'), e.getMessage());
+      }
+    }
+    System.assertEquals(1, Database.query('SELECT Id FROM Account WHERE NumberOfEmployees = 5').size());
+    System.assert(accountModel.parseCondition('NumberOfEmployees = 5').evaluate(new Account(NumberOfEmployees = 5)));
+  }
+
+  @isTest
+  static void whatToSoqlWritesIsReadBack() {
+    Id accountId = IdUtil.generateId(Account.SObjectType);
+    List<ICondition> written = new List<ICondition>{
+      core.eq(Account.Name, 'O\'Brien \\ 50%'),
+      core.eq(Account.Name, '123'),
+      core.ne(Account.Name, null),
+      core.lk(Account.Name, 'Ac\\%me_%'),
+      core.eq(Account.Id, accountId),
+      core.iin(Account.Id, new Set<Id>{ accountId }),
+      core.nin(Account.Industry, new List<String>{ 'Energy', 'Retail' }),
+      core.iin(Account.Industry, new List<String>()),
+      core.eq(Account.NumberOfEmployees, 5),
+      core.lt(Account.NumberOfEmployees, -5),
+      core.ge(Account.AnnualRevenue, 12345678901L),
+      core.le(Account.AnnualRevenue, 1234.5),
+      core.iin(Account.AnnualRevenue, new List<Decimal>{ 0, 10.5 }),
+      core.eq(Account.IsDeleted, true),
+      core.eq(Account.LastActivityDate, Date.newInstance(2026, 1, 31)),
+      core.gt(Account.CreatedDate, Date.newInstance(2026, 1, 31)),
+      core.le(Account.CreatedDate, Datetime.newInstanceGmt(2026, 1, 31, 9, 30, 15)),
+      core.ge(Account.CreatedDate, DateLiteral.lastNDays(30)),
+      core.iin(Account.CreatedDate, new List<IDateLiteral>{ DateLiteral.today(), DateLiteral.nFiscalQuartersAgo(2) }),
+      core.neg(core.eq(Account.Name, 'Acme')),
+      core.all(
+        new List<ICondition>{
+          core.eq(Account.Name, 'Acme'),
+          core.neg(core.any(new List<ICondition>{ core.eq(Account.Industry, 'Energy'), core.gt(Account.AnnualRevenue, 5) }))
+        }
+      ),
+      core.eq(new List<SObjectField>{ Account.OwnerId, User.Email }, 'someone@example.com'),
+      core.ge(BusinessHours.MondayStartTime, Time.newInstance(9, 30, 0, 0)),
+      core.iin(BusinessHours.MondayStartTime, new List<Time>{ Time.newInstance(0, 0, 0, 0), Time.newInstance(23, 59, 59, 999) }),
+      core.model(Task.SObjectType).parseCondition('What.Type = \'Account\' AND Owner.Name != null')
+    };
+
+    for (ICondition each : written) {
+      if (each.source() == null) {
+        each.realize(Account.SObjectType);
+      }
+      String soql = each.toSoql();
+      ICondition readBack = each.source().parseCondition(soql);
+      System.assertEquals(soql, readBack.toSoql(), 'read back and written again');
+    }
   }
 }
