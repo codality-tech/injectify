@@ -263,7 +263,7 @@ private class DateLiteralTest {
 
     Assert.isTrue(thisFiscalQuarter.evaluate(new Opportunity(CloseDate = Date.newInstance(2027, 3, 1))));
     Assert.isFalse(thisFiscalQuarter.evaluate(new Opportunity(CloseDate = Date.newInstance(2027, 6, 1))));
-    Assert.areEqual(Date.newInstance(2027, 3, 1), DateLiteral.checked(DateLiteral.thisFiscalYear()).startDate(scheme));
+    Assert.areEqual(Date.newInstance(2027, 3, 1), DateLiteral.checked(DateLiteral.thisFiscalYear()).firstDay(scheme));
     Assert.areEqual(
       new List<String>{
         'SELECT COUNT() FROM FiscalYearSettings WHERE IsStandardYear = false LIMIT 1',
@@ -310,8 +310,8 @@ private class DateLiteralTest {
     if (custom) {
       assertRefusedForCustomFiscalYears(new List<IDateLiteral>{ thisFiscalYear });
     } else {
-      Assert.areEqual(startMonth, thisFiscalYear.startDate(null).month());
-      Assert.areEqual(1, thisFiscalYear.startDate(null).day());
+      Assert.areEqual(startMonth, thisFiscalYear.firstDay(null).month());
+      Assert.areEqual(1, thisFiscalYear.firstDay(null).day());
       Assert.areEqual(2, Limits.getQueries() - before, 'two queries, however often it is asked');
     }
   }
@@ -346,7 +346,7 @@ private class DateLiteralTest {
 
     for (Integer attempt = 0; attempt < 3; attempt++) {
       try {
-        thisFiscalYear.startDate(null);
+        thisFiscalYear.firstDay(null);
         Assert.fail('a custom fiscal year was worked out from a start month');
       } catch (Filtering.ConditionException refused) {
         Assert.isTrue(refused.getMessage().contains('custom fiscal years'), refused.getMessage());
@@ -688,7 +688,7 @@ private class DateLiteralTest {
   static void inAnotherTimeZoneAndLocaleTheAnswersAreStillSoqls() {
     // Fourteen hours ahead of GMT, and a week that starts on Monday
     System.runAs(userIn('Pacific/Kiritimati', 'en_GB')) {
-      Date weekStart = DateLiteral.checked(DateLiteral.thisWeek()).startDate(null);
+      Date weekStart = DateLiteral.checked(DateLiteral.thisWeek()).firstDay(null);
       Assert.areEqual('Monday', Datetime.newInstance(weekStart, Time.newInstance(12, 0, 0, 0)).format('EEEE'));
       Assert.areEqual('Pacific/Kiritimati', UserInfo.getTimeZone().getID());
       List<Task> rows = aroundEachDay(-16, 16);
@@ -712,7 +712,7 @@ private class DateLiteralTest {
   static void behindGmtWithAHalfHourOffsetTheAnswersAreStillSoqls() {
     // Nine and a half hours behind GMT, and a week that starts on Sunday
     System.runAs(userIn('Pacific/Marquesas', 'en_US')) {
-      Date weekStart = DateLiteral.checked(DateLiteral.thisWeek()).startDate(null);
+      Date weekStart = DateLiteral.checked(DateLiteral.thisWeek()).firstDay(null);
       Assert.areEqual('Sunday', Datetime.newInstance(weekStart, Time.newInstance(12, 0, 0, 0)).format('EEEE'));
       List<Task> rows = aroundEachDay(-16, 16);
       rows.addAll(aroundEachMonthStart());
@@ -732,12 +732,32 @@ private class DateLiteralTest {
     }
   }
 
+  @IsTest
+  static void theRangeIsGivenAsItsFirstAndLastDay() {
+    DateLiteral.fixedToday = Date.newInstance(2027, 5, 15);
+    IDateLiteral thisMonth = DateLiteral.thisMonth();
+    Assert.areEqual(Date.newInstance(2027, 5, 1), thisMonth.startDate());
+    Assert.areEqual(Date.newInstance(2027, 5, 31), thisMonth.endDate(), 'the last day, not the day after it');
+
+    IDateLiteral lastThreeDays = DateLiteral.lastNDays(3);
+    Assert.areEqual(Date.newInstance(2027, 5, 12), lastThreeDays.startDate());
+    Assert.areEqual(Date.newInstance(2027, 5, 15), lastThreeDays.endDate(), 'LAST_N_DAYS includes today');
+
+    IDateLiteral noWeeks = DateLiteral.lastNWeeks(0);
+    Assert.areEqual(noWeeks.startDate().addDays(-1), noWeeks.endDate(), 'a range of no days ends the day before it starts');
+
+    DateLiteral.fiscalStartMonth = 4;
+    IDateLiteral thisFiscalYear = DateLiteral.thisFiscalYear();
+    Assert.areEqual(Date.newInstance(2027, 4, 1), thisFiscalYear.startDate());
+    Assert.areEqual(Date.newInstance(2028, 3, 31), thisFiscalYear.endDate());
+  }
+
   // Helpers
 
   private static void assertSpan(IDateLiteral literal, Date first, Date dayAfterLast) {
     DateLiteral.Value value = DateLiteral.checked(literal);
-    Assert.areEqual(first, value.startDate(null), literal.toSoql() + ' starts');
-    Assert.areEqual(dayAfterLast, value.endDate(null), literal.toSoql() + ' ends before');
+    Assert.areEqual(first, value.firstDay(null), literal.toSoql() + ' starts');
+    Assert.areEqual(dayAfterLast, value.dayAfter(null), literal.toSoql() + ' ends before');
   }
 
   private static void assertAnswers(
@@ -880,6 +900,15 @@ private class DateLiteralTest {
 
     public String toSoql() {
       return text;
+    }
+
+    // Never asked: the framework reads a literal of another class from its text alone.
+    public Date startDate() {
+      return null;
+    }
+
+    public Date endDate() {
+      return null;
     }
   }
 }

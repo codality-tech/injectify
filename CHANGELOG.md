@@ -4,6 +4,8 @@ All notable changes to this project. Versions follow [semantic versioning](https
 
 ## Unreleased
 
+The next version is 0.4.0: the new methods on `IQuery` and `IAggregateQuery` break a class that implements either directly (see Changed).
+
 ### Added
 
 - **Semi-joins and anti-joins.** `iin` and `nin` (and `cond` with `IIN` or `NIN`) take a query as their value: `App.s.iin(Account.Id, contactQuery)` writes `Id IN (SELECT AccountId FROM Contact WHERE ...)`, and `nin` writes `NOT IN`. No new method: the value was already an `Object`, and `IFieldCondition.value()` returns the query.
@@ -15,7 +17,8 @@ All notable changes to this project. Versions follow [semantic versioning](https
   - `deepClone()` and `clone(true)` copy the inner query. `evaluate()` throws for a semi-join: it cannot be tested in memory. `parseCondition` does not read one from text, and says so.
   - The platform's own rules (two per query, not under `OR` or `NOT`, top level of WHERE only, different objects) come through as its `QueryException`. The [query guide](docs/documentation/query-guide.md#semi-joins-and-anti-joins) lists them as checked at API version 68.0.
 
-- **Date literals.** `DateLiteral` makes SOQL's relative ranges of days, as the value of a condition on a date or date-time field: `App.s.ge(Opportunity.CloseDate, inj.DateLiteral.lastNDays(30))` writes `CloseDate >= LAST_N_DAYS:30`. There is a factory for each of the 44 literals in the SOQL reference (`today()`, `thisWeek()`, `nextNMonths(2)`, `lastFiscalQuarter()`, `nFiscalYearsAgo(1)`...), and `DateLiteral.of('NEXT_N_FISCAL_QUARTERS:2')` reads one from text. New global types: the class `DateLiteral` and the interface `IDateLiteral` (`toSoql()`).
+- **Date literals.** `DateLiteral` makes SOQL's relative ranges of days, as the value of a condition on a date or date-time field: `App.s.ge(Opportunity.CloseDate, inj.DateLiteral.lastNDays(30))` writes `CloseDate >= LAST_N_DAYS:30`. There is a factory for each of the 44 literals in the SOQL reference (`today()`, `thisWeek()`, `nextNMonths(2)`, `lastFiscalQuarter()`, `nFiscalYearsAgo(1)`...), and `DateLiteral.of('NEXT_N_FISCAL_QUARTERS:2')` reads one from text. New global types: the class `DateLiteral` and the interface `IDateLiteral` (`toSoql()`, `startDate()`, `endDate()`).
+  - `startDate()` and `endDate()` give the range in Apex: its first and its last day, inclusive, for the running user today. `inj.DateLiteral.thisFiscalQuarter().endDate()` is the last day of the current fiscal quarter. A range of no days (`LAST_N_WEEKS:0`) ends the day before it starts.
   - It goes with `eq`, `ne`, `lt`, `le`, `gt` and `ge`; `iin` and `nin` take a `List<IDateLiteral>`. Another operator, or a field that is not a date or date-time, throws when the condition is built.
   - It is written into the SOQL as it is and never bound, in a query, a child subquery, the inner query of a semi-join, an aggregate query's WHERE and HAVING, and a search's filters. A literal of a class of your own that implements `IDateLiteral` is read from the text its `toSoql()` gives, so only the text of a date literal reaches a query.
   - `parseCondition` reads them: `CloseDate = LAST_N_DAYS:30`, `CreatedDate IN (THIS_WEEK, LAST_WEEK)`.

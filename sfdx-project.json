@@ -4,8 +4,8 @@
       "path": "force-app",
       "default": true,
       "package": "Injectify",
-      "versionName": "ver 0.3.0",
-      "versionNumber": "0.3.0.NEXT",
+      "versionName": "ver 0.4.0",
+      "versionNumber": "0.4.0.NEXT",
       "versionDescription": "An Apex framework for queries, conditions, triggers, DML and async jobs"
     }
   ],

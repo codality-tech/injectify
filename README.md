@@ -2,7 +2,7 @@
 
 An Apex framework for Salesforce that gives queries, conditions, triggers, DML and async jobs one consistent model. Fields are addressed as paths (`Contact` → `Account` → `Owner.Name`); a condition built from those paths can both compile into a SOQL `WHERE` clause and test records in memory, with the same answer.
 
-> **Status:** 0.3.0, the first release. An unlocked package in the namespace `inj`. The API may change before 1.0.
+> **Status:** 0.3.0, the first release. An unlocked package in the namespace `inj`. The API may change before 1.0. This page describes the code on `main`: semi-joins, date literals, `ALL ROWS`, `USING SCOPE`, `FOR VIEW`, `FOR REFERENCE` and paths through polymorphic lookups come with 0.4.0, which is in beta (see the [changelog](CHANGELOG.md)).
 
 ## What it does
 

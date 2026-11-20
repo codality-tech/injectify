@@ -23,6 +23,10 @@
  * organization has no custom fiscal years, one for the start month. An organization with custom
  * fiscal years gets a ConditionException instead, since only the database knows its periods.
  *
+ * startDate() and endDate() give the range in Apex, its first and last day (inclusive):
+ *
+ *   Date quarterEnds = DateLiteral.thisFiscalQuarter().endDate();
+ *
  * A count may be as large as the platform takes: 365000, for every unit. In memory a larger one
  * is refused with a ConditionException; the platform answers it with Date formula too large.
  * Text that is no date literal, and a count below zero, throw an IllegalArgumentException.
@@ -450,16 +454,26 @@ global inherited sharing class DateLiteral {
       return spec.unit == Unit.FISCAL_QUARTER || spec.unit == Unit.FISCAL_YEAR;
     }
 
+    /** The first day of the range, for the running user today; fiscal years read through the default scheme. */
+    public Date startDate() {
+      return firstDay(null);
+    }
+
+    /** The last day of the range, inclusive; a range of no days ends the day before it starts. */
+    public Date endDate() {
+      return dayAfter(null).addDays(-1);
+    }
+
     /** The first day of the range, for the running user today. */
-    public Date startDate(IScheme scheme) {
+    public Date firstDay(IScheme scheme) {
       return unitStart(spec.unit, span()[0], scheme);
     }
 
     /**
-     * The day after the last day of the range. An empty range, such as LAST_N_WEEKS:0, starts and
-     * ends on the same day.
+     * The day after the last day of the range, which is how comparisons read it: [firstDay,
+     * dayAfter). An empty range, such as LAST_N_WEEKS:0, starts and ends on the same day.
      */
-    public Date endDate(IScheme scheme) {
+    public Date dayAfter(IScheme scheme) {
       return unitStart(spec.unit, span()[1], scheme);
     }
 
@@ -498,8 +512,8 @@ global inherited sharing class DateLiteral {
      * leaves the row out whether or not the condition is negated: an empty field matches != alone.
      */
     public Boolean test(Enums.Comparator kind, Object fieldValue, IScheme scheme) {
-      Date first = startDate(scheme);
-      Date after = endDate(scheme);
+      Date first = firstDay(scheme);
+      Date after = dayAfter(scheme);
       if (fieldValue == null) {
         return kind == Enums.Comparator.NE ? true : null;
       }

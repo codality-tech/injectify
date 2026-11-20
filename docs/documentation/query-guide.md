@@ -287,6 +287,8 @@ There is a factory for every literal in the SOQL reference:
 
 `inj.DateLiteral.of('NEXT_N_FISCAL_QUARTERS:2')` reads one from text, which suits a literal kept in configuration. Case does not matter, nor do spaces around the colon, as in SOQL. Text that is not a date literal throws an `IllegalArgumentException`, as do a number where the literal takes none (`TODAY:3`), no number where it needs one (`LAST_N_DAYS`) and a number below zero.
 
+`startDate()` and `endDate()` give the range in Apex: its first and its last day, inclusive, for the running user today. `inj.DateLiteral.thisMonth().endDate()` is the last day of this month, and `inj.DateLiteral.thisFiscalQuarter().startDate()` the day the current fiscal quarter began. A fiscal literal reads the organization's fiscal year (two queries, once per transaction) and throws for custom fiscal years. A range of no days (`LAST_N_WEEKS:0`) ends the day before it starts.
+
 **What a comparison means.** A date literal is a range, so the operators read differently than with one date. This is SOQL's meaning, and `evaluate` gives the same:
 
 | | Matches |

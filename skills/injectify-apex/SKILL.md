@@ -114,7 +114,8 @@ List<Account> rows = (List<Account>) q.run();
   Compare with `null` by `eq` and `ne` only: a query refuses `null` with `lt le gt ge lk`.
 - A date literal is a value, not text: `inj.DateLiteral.thisWeek()`, `inj.DateLiteral.lastNDays(30)`,
   `inj.DateLiteral.of('NEXT_N_FISCAL_QUARTERS:2')`. It goes with `eq ne lt le gt ge` on a date or
-  date-time field, and as a `List<inj.IDateLiteral>` with `iin` and `nin`.
+  date-time field, and as a `List<inj.IDateLiteral>` with `iin` and `nin`. For the range in Apex,
+  `startDate()` and `endDate()` give its first and last day, inclusive.
 - `What.Type`, `Owner.Name` and the other fields every target of a polymorphic lookup has are
   paths: `App.s.eq('What.Type', 'Account')`, `q.fields().add(new Set<String>{ 'What.Name' })`.
   A field of one target (`What.Industry`) needs `TYPEOF`: `q.fields().add(Task.WhatId, fields)`.

@@ -154,6 +154,8 @@ interface IApplication extends ICore {
 
 interface IDateLiteral {
   String toSoql();
+  Date startDate();
+  Date endDate();
 }
 
 interface IDomain {

@@ -1027,5 +1027,14 @@ private class AggregateQueryTest {
     public String toSoql() {
       return text;
     }
+
+    // Never asked: the framework reads a literal of another class from its text alone.
+    public Date startDate() {
+      return null;
+    }
+
+    public Date endDate() {
+      return null;
+    }
   }
 }

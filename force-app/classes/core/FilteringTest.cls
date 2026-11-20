@@ -1298,6 +1298,13 @@ private class FilteringTest {
   }
 
   @IsTest
+  static void aDecimalIsWrittenInPlainDigits() {
+    Decimal large = Decimal.valueOf('1.5E+10');
+    Assert.areEqual('1.5E+10', String.valueOf(large), 'the value carries an exponent');
+    Assert.areEqual('AnnualRevenue > 15000000000', core.gt(Account.AnnualRevenue, large).toSoql(), 'SOQL takes no exponent');
+  }
+
+  @IsTest
   static void aConditionCarriedByAJobIsWrittenAndTestedAsBefore() {
     DateLiteral.fixedToday = Date.newInstance(2026, 1, 20);
     Id accountId = IdUtil.generateId(Account.SObjectType);
